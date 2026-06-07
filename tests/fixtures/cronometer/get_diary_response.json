@@ -1,0 +1,48 @@
+{
+  "diary": [
+    {
+      "type": "Serving",
+      "servingId": "srv-abc001",
+      "foodId": 100001,
+      "measureId": 1,
+      "grams": 100.0,
+      "order": 65536,
+      "day": "2026-6-7"
+    },
+    {
+      "type": "Serving",
+      "servingId": "srv-abc002",
+      "foodId": 100001,
+      "measureId": 1,
+      "grams": 50.0,
+      "order": 131072,
+      "day": "2026-6-7"
+    },
+    {
+      "type": "Activity",
+      "name": "Walking",
+      "calories": 120
+    }
+  ],
+  "summary": {
+    "consumed": {
+      "total": 525.0,
+      "protein_g": 18.75,
+      "fat_g": 4.2,
+      "carbs_g": 108.0,
+      "fiber_g": 9.75,
+      "sugar_g": 1.8,
+      "alcohol_g": 0.0,
+      "deficit_kcal": -175.0,
+      "protein_kcal": 75.0,
+      "fat_kcal": 37.8,
+      "carbs_kcal": 432.0
+    },
+    "macros": {
+      "energy": 2000.0,
+      "protein": 150.0,
+      "fat": 65.0,
+      "carbs": 200.0
+    }
+  }
+}

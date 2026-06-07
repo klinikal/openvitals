@@ -1,0 +1,30 @@
+{
+  "id": 100001,
+  "name": "Synthetic Test Grain",
+  "category": 20,
+  "source": "NCCDB:99999",
+  "foodTags": ["Whole", "Vegan", "Vegetarian"],
+  "barcode": null,
+  "measures": [
+    {"id": 1, "name": "100g", "grams": 100.0},
+    {"id": 2, "name": "1 cup", "grams": 185.0}
+  ],
+  "nutrients": [
+    {"id": 1,   "amount": 350.0, "type": "PRIMARY"},
+    {"id": 203, "amount": 12.5,  "type": "PRIMARY"},
+    {"id": 204, "amount": 2.8,   "type": "PRIMARY"},
+    {"id": 205, "amount": 72.0,  "type": "PRIMARY"},
+    {"id": 291, "amount": 6.5,   "type": "PRIMARY"},
+    {"id": 269, "amount": 1.2,   "type": "PRIMARY"},
+    {"id": 221, "amount": 0.0,   "type": "PRIMARY"},
+    {"id": 303, "amount": 4.2,   "type": "PRIMARY"},
+    {"id": 304, "amount": 115.0, "type": "PRIMARY"},
+    {"id": 317, "amount": 28.5,  "type": "PRIMARY"},
+    {"id": 328, "amount": 0.0,   "type": "PRIMARY"},
+    {"id": 401, "amount": 0.0,   "type": "PRIMARY"},
+    {"id": 306, "amount": 320.0, "type": "PRIMARY"},
+    {"id": 307, "amount": 5.0,   "type": "PRIMARY"},
+    {"id": 301, "amount": 38.0,  "type": "PRIMARY"},
+    {"id": 605, "amount": 0.0,   "type": "PRIMARY"}
+  ]
+}
