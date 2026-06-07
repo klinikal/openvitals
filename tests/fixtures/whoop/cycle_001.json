@@ -1,0 +1,13 @@
+{
+  "id": 9900001,
+  "start": "2026-06-06T06:00:00Z",
+  "end": "2026-06-07T06:00:00Z",
+  "timezone_offset": "+01:00",
+  "score_state": "SCORED",
+  "score": {
+    "strain": 14.2,
+    "kilojoule": 12500.0,
+    "average_heart_rate": 74,
+    "max_heart_rate": 172
+  }
+}

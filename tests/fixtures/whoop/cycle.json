@@ -1,0 +1,31 @@
+{
+  "records": [
+    {
+      "id": 88001,
+      "start": "2026-06-06T12:00:00.000Z",
+      "end": "2026-06-07T07:00:00.000Z",
+      "timezone_offset": "+01:00",
+      "score_state": "SCORED",
+      "score": {
+        "strain": 12.4,
+        "kilojoule": 8200.0,
+        "average_heart_rate": 68,
+        "max_heart_rate": 155
+      }
+    },
+    {
+      "id": 88000,
+      "start": "2026-06-05T12:00:00.000Z",
+      "end": "2026-06-06T07:10:00.000Z",
+      "timezone_offset": "+01:00",
+      "score_state": "SCORED",
+      "score": {
+        "strain": 8.1,
+        "kilojoule": 6400.0,
+        "average_heart_rate": 63,
+        "max_heart_rate": 140
+      }
+    }
+  ],
+  "next_token": null
+}

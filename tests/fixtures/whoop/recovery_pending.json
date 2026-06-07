@@ -1,0 +1,9 @@
+{
+  "id": 112234,
+  "cycle_id": 9900002,
+  "sleep_id": "sleep-uuid-003",
+  "created_at": "2026-06-08T08:00:00Z",
+  "updated_at": "2026-06-08T08:00:00Z",
+  "score_state": "PENDING_SCORE",
+  "score": null
+}

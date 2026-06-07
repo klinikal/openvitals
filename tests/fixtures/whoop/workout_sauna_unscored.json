@@ -1,0 +1,11 @@
+{
+  "id": "workout-uuid-sauna-001",
+  "v1_id": 54322,
+  "start": "2026-06-06T18:00:00Z",
+  "end": "2026-06-06T18:25:00Z",
+  "timezone_offset": "+01:00",
+  "sport_name": "sauna",
+  "sport_id": 63,
+  "score_state": "UNSCORABLE",
+  "score": null
+}

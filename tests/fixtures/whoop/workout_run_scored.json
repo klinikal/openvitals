@@ -1,0 +1,27 @@
+{
+  "id": "workout-uuid-run-001",
+  "v1_id": 54321,
+  "start": "2026-06-06T07:00:00Z",
+  "end": "2026-06-06T08:05:00Z",
+  "timezone_offset": "+01:00",
+  "sport_name": "running",
+  "sport_id": 0,
+  "score_state": "SCORED",
+  "score": {
+    "strain": 13.8,
+    "average_heart_rate": 155,
+    "max_heart_rate": 178,
+    "kilojoule": 2800.0,
+    "percent_recorded": 99.1,
+    "distance_meter": 10450.0,
+    "altitude_gain_meter": 95.0,
+    "zone_durations": {
+      "zone_zero_milli": 180000,
+      "zone_one_milli": 300000,
+      "zone_two_milli": 900000,
+      "zone_three_milli": 1500000,
+      "zone_four_milli": 900000,
+      "zone_five_milli": 120000
+    }
+  }
+}

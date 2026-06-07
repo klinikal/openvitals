@@ -1,0 +1,7 @@
+{
+  "access_token": "new_access_token_abc123",
+  "refresh_token": "new_refresh_token_xyz789",
+  "token_type": "Bearer",
+  "expires_in": 3600,
+  "scope": "read:recovery read:cycles read:sleep read:workout read:profile read:body_measurement offline"
+}

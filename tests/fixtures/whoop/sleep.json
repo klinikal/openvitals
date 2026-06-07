@@ -1,0 +1,60 @@
+{
+  "records": [
+    {
+      "id": "abc12300-0000-0000-0000-000000000001",
+      "nap": false,
+      "start": "2026-06-06T22:30:00.000Z",
+      "end": "2026-06-07T06:45:00.000Z",
+      "timezone_offset": "+01:00",
+      "score_state": "SCORED",
+      "score": {
+        "sleep_performance_percentage": 82,
+        "sleep_consistency_percentage": 74,
+        "sleep_efficiency_percentage": 88.5,
+        "respiratory_rate": 14.2,
+        "stage_summary": {
+          "total_in_bed_time_milli": 29700000,
+          "total_awake_time_milli": 1980000,
+          "total_light_sleep_time_milli": 9000000,
+          "total_slow_wave_sleep_time_milli": 6300000,
+          "total_rem_sleep_time_milli": 12420000,
+          "sleep_cycle_count": 4,
+          "disturbance_count": 3
+        }
+      }
+    },
+    {
+      "id": "abc12300-0000-0000-0000-000000000002",
+      "nap": false,
+      "start": "2026-06-05T23:00:00.000Z",
+      "end": "2026-06-06T07:00:00.000Z",
+      "timezone_offset": "+01:00",
+      "score_state": "UNSCORABLE",
+      "score": null
+    },
+    {
+      "id": "abc12300-0000-0000-0000-000000000003",
+      "nap": true,
+      "start": "2026-06-06T13:00:00.000Z",
+      "end": "2026-06-06T13:30:00.000Z",
+      "timezone_offset": "+01:00",
+      "score_state": "SCORED",
+      "score": {
+        "sleep_performance_percentage": 60,
+        "sleep_consistency_percentage": null,
+        "sleep_efficiency_percentage": 90.0,
+        "respiratory_rate": 14.5,
+        "stage_summary": {
+          "total_in_bed_time_milli": 1800000,
+          "total_awake_time_milli": 180000,
+          "total_light_sleep_time_milli": 1620000,
+          "total_slow_wave_sleep_time_milli": 0,
+          "total_rem_sleep_time_milli": 0,
+          "sleep_cycle_count": 1,
+          "disturbance_count": 0
+        }
+      }
+    }
+  ],
+  "next_token": null
+}

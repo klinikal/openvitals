@@ -1,0 +1,41 @@
+{
+  "records": [
+    {
+      "id": "wkt-0001-0000-0000-0000-000000000003",
+      "start": "2026-06-04T09:00:00.000Z",
+      "end": "2026-06-04T09:45:00.000Z",
+      "sport_name": "sauna",
+      "sport_id": 63,
+      "timezone_offset": "+01:00",
+      "score_state": "SCORED",
+      "score": {
+        "strain": 2.1,
+        "average_heart_rate": 88,
+        "max_heart_rate": 110,
+        "kilojoule": 800.0,
+        "percent_recorded": 100.0,
+        "distance_meter": null,
+        "altitude_gain_meter": null,
+        "zone_durations": {
+          "zone_zero_milli": 900000,
+          "zone_one_milli": 1200000,
+          "zone_two_milli": 600000,
+          "zone_three_milli": 0,
+          "zone_four_milli": 0,
+          "zone_five_milli": 0
+        }
+      }
+    },
+    {
+      "id": "wkt-0001-0000-0000-0000-000000000004",
+      "start": "2026-06-03T17:30:00.000Z",
+      "end": "2026-06-03T18:20:00.000Z",
+      "sport_name": "cycling",
+      "sport_id": 2,
+      "timezone_offset": "+01:00",
+      "score_state": "PENDING_SCORE",
+      "score": null
+    }
+  ],
+  "next_token": null
+}

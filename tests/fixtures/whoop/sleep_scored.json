@@ -1,0 +1,24 @@
+{
+  "id": "sleep-uuid-001",
+  "start": "2026-06-06T22:45:00Z",
+  "end": "2026-06-07T07:10:00Z",
+  "nap": false,
+  "timezone_offset": "+01:00",
+  "score_state": "SCORED",
+  "score": {
+    "sleep_performance_percentage": 84,
+    "sleep_consistency_percentage": 72,
+    "sleep_efficiency_percentage": 87.3,
+    "respiratory_rate": 15.1,
+    "hrv_rmssd_milli": 68.4,
+    "stage_summary": {
+      "total_in_bed_time_milli": 30300000,
+      "total_awake_time_milli": 3840000,
+      "total_light_sleep_time_milli": 14400000,
+      "total_slow_wave_sleep_time_milli": 5400000,
+      "total_rem_sleep_time_milli": 6660000,
+      "sleep_cycle_count": 4,
+      "disturbance_count": 3
+    }
+  }
+}

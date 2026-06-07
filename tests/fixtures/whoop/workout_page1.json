@@ -1,0 +1,57 @@
+{
+  "records": [
+    {
+      "id": "wkt-0001-0000-0000-0000-000000000001",
+      "start": "2026-06-06T07:00:00.000Z",
+      "end": "2026-06-06T08:05:00.000Z",
+      "sport_name": "running",
+      "sport_id": 1,
+      "timezone_offset": "+01:00",
+      "score_state": "SCORED",
+      "score": {
+        "strain": 14.2,
+        "average_heart_rate": 158,
+        "max_heart_rate": 178,
+        "kilojoule": 2400.0,
+        "percent_recorded": 99.1,
+        "distance_meter": 10250.0,
+        "altitude_gain_meter": 45.0,
+        "zone_durations": {
+          "zone_zero_milli": 60000,
+          "zone_one_milli": 120000,
+          "zone_two_milli": 480000,
+          "zone_three_milli": 1800000,
+          "zone_four_milli": 900000,
+          "zone_five_milli": 240000
+        }
+      }
+    },
+    {
+      "id": "wkt-0001-0000-0000-0000-000000000002",
+      "start": "2026-06-05T18:00:00.000Z",
+      "end": "2026-06-05T18:55:00.000Z",
+      "sport_name": "strength training",
+      "sport_id": 44,
+      "timezone_offset": "+01:00",
+      "score_state": "SCORED",
+      "score": {
+        "strain": 9.8,
+        "average_heart_rate": 132,
+        "max_heart_rate": 162,
+        "kilojoule": 1600.0,
+        "percent_recorded": 97.5,
+        "distance_meter": null,
+        "altitude_gain_meter": null,
+        "zone_durations": {
+          "zone_zero_milli": 300000,
+          "zone_one_milli": 600000,
+          "zone_two_milli": 1200000,
+          "zone_three_milli": 900000,
+          "zone_four_milli": 300000,
+          "zone_five_milli": 0
+        }
+      }
+    }
+  ],
+  "next_token": "page2token"
+}

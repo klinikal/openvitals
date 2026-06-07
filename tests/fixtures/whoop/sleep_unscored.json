@@ -1,0 +1,9 @@
+{
+  "id": "sleep-uuid-002",
+  "start": "2026-06-07T23:00:00Z",
+  "end": "2026-06-08T06:30:00Z",
+  "nap": false,
+  "timezone_offset": "+01:00",
+  "score_state": "UNSCORABLE",
+  "score": null
+}
