@@ -12,14 +12,20 @@ import pytest
 from openvitals import OpenVitals
 
 
-EXPECTED_SOURCES = {"whoop", "strava", "withings", "hevy", "cronometer"}
+OFFICIAL_SOURCES = {"whoop", "strava", "withings", "hevy"}
+ALL_SOURCES = OFFICIAL_SOURCES | {"cronometer"}
 
 
 class TestWithBuiltins:
-    def test_available_returns_all_five_sources(self):
-        """with_builtins() must register exactly the 5 built-in connectors."""
+    def test_available_returns_four_official_sources(self):
+        """with_builtins() without enable_unofficial registers only 4 official connectors."""
         client = OpenVitals.with_builtins()
-        assert client.available() == EXPECTED_SOURCES
+        assert client.available() == OFFICIAL_SOURCES
+
+    def test_available_with_unofficial_returns_all_five(self):
+        """with_builtins(enable_unofficial=True) registers all 5 connectors."""
+        client = OpenVitals.with_builtins(enable_unofficial=True)
+        assert client.available() == ALL_SOURCES
 
     def test_sources_property_matches_available(self):
         """sources property and available() must agree."""

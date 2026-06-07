@@ -33,8 +33,8 @@ from openvitals.connectors.whoop.connector import (
     _map_activity_type,
     _map_score_state,
     _millis_to_minutes,
-    _kj_to_kcal,
 )
+from openvitals.utils.units import kj_to_kcal as _kj_to_kcal
 from openvitals.errors import AuthRequired, MissingScope, ProviderPayloadError
 from openvitals.schema.domains import ActivityType, RecordType, ScoreState
 from openvitals.schema.records import (
@@ -176,10 +176,10 @@ class TestUtilityFunctions:
         assert _millis_to_minutes(None) is None
 
     def test_kj_to_kcal(self):
-        # 2800 kJ * 0.239006 ≈ 669.2 kcal
+        # 2800 kJ * 0.239006 = 669.217 kcal → rounded to 669.2
         result = _kj_to_kcal(2800.0)
         assert result is not None
-        assert abs(result - 669.2) < 0.5
+        assert abs(result - 669.2) < 0.1
 
     def test_kj_to_kcal_none(self):
         assert _kj_to_kcal(None) is None
@@ -198,7 +198,7 @@ class TestAuth:
             connector.connect(credentials={})
 
     def test_connect_raises_missing_scope_when_read_cycles_absent(self):
-        """read:cycles being missing must fail loudly (classic WHOOP bug in HealthOS)."""
+        """read:cycles being missing must fail loudly (scope grant is required; missing scope must be caught at connect)."""
         bad_creds = dict(VALID_CREDENTIALS)
         bad_creds["scopes"] = [s for s in ALL_REQUIRED_SCOPES if s != "read:cycles"]
         connector = make_connector()
@@ -300,10 +300,12 @@ class TestAuth:
             mock_post.return_value = mock_post_resp
             account = connector.connect(credentials=creds)
 
-        # No secret values should leak into metadata
-        metadata_str = str(account.metadata)
-        assert "access_token" not in metadata_str
-        assert "refresh_token" not in metadata_str
+        # Token field NAMES must not appear as metadata keys — either form leaks secrets
+        assert "access_token" not in account.metadata
+        assert "refresh_token" not in account.metadata
+        # Confirm the actual safe keys that ARE present
+        assert "scopes" in account.metadata
+        assert "expires_at" in account.metadata
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +362,7 @@ class TestSleepMapping:
         assert c.score_state == ScoreState.SCORED
 
     def test_sleep_total_sleep_calculation(self):
-        """total_sleep = in_bed - awake (HealthOS reference formula)."""
+        """total_sleep = in_bed - awake (WHOOP stage_summary fields)."""
         raw = load_fixture("sleep_scored.json")
         connector, account = self._make_connector_and_account()
         record = connector._map_sleep(raw, account.account_ref, datetime.now(UTC))
@@ -570,6 +572,41 @@ class TestRecoveryMapping:
         assert record.common.hrv_ms is None
         assert record.common.provider_recovery_score is None
 
+    def test_recovery_local_date_cross_midnight(self):
+        """WHOOP timezone_offset must be applied to recovery too.
+
+        A cycle starting at 23:30 UTC with +01:00 offset is 00:30 local time on
+        the NEXT calendar day — the recovery should attribute to that next local day,
+        not the UTC date. This is the same bug that was fixed for sleep/workout.
+        """
+        raw = load_fixture("recovery_scored.json")
+        # Synthetic cycle that starts near midnight UTC
+        cross_midnight_cycle = {
+            "id": 9900099,
+            "start": "2026-06-06T23:30:00Z",   # UTC 23:30 June 6
+            "end": "2026-06-07T23:30:00Z",
+            "timezone_offset": "+01:00",          # local = 00:30 June 7
+            "score_state": "SCORED",
+            "score": {"strain": 10.0},
+        }
+        raw_cross = dict(raw)
+        raw_cross["cycle_id"] = 9900099
+
+        cycles = {9900099: cross_midnight_cycle}
+        connector, account = self._make_connector_and_account()
+
+        record = connector._map_recovery(raw_cross, cycles, account.account_ref, datetime.now(UTC))
+
+        # 23:30Z + 01:00 = 00:30 local on 2026-06-07 → local_date must be 2026-06-07
+        assert record.local_date == date(2026, 6, 7), (
+            f"Expected local_date=2026-06-07 for 23:30Z+01:00 cross-midnight cycle, "
+            f"got {record.local_date}"
+        )
+        # source_record_id must use the timezone-adjusted date, not the UTC date
+        assert ":2026-06-07:daily_recovery" in record.source_record_id, (
+            f"source_record_id should contain '2026-06-07', got {record.source_record_id!r}"
+        )
+
     def test_recovery_source_extras_contains_cycle_and_sleep_ids(self):
         raw = load_fixture("recovery_scored.json")
         cycles = self._cycles_by_id("cycle_001.json")
@@ -625,7 +662,7 @@ class TestWorkoutMapping:
         assert c.score_state == ScoreState.SCORED
 
     def test_workout_duration_derived_from_timestamps(self):
-        """Duration is derived from start/end (HealthOS reference pattern)."""
+        """Duration is derived from start/end timestamps."""
         raw = load_fixture("workout_run_scored.json")
         connector, account = self._make_connector_and_account()
         record = connector._map_workout(raw, account.account_ref, datetime.now(UTC))

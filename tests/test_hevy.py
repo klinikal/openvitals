@@ -607,6 +607,78 @@ class TestDeletedEvents:
 
 
 # ---------------------------------------------------------------------------
+# Unknown event types
+# ---------------------------------------------------------------------------
+
+
+class TestUnknownEventTypes:
+    """Unknown event types are skipped with a warning — not an error (forward compatibility)."""
+
+    def test_unknown_event_type_is_skipped(self):
+        """An unrecognised event type produces no record (no crash)."""
+        store = make_store_with_key()
+        connector = HevyConnector(store)
+        account = make_account()
+
+        unknown_event = {"type": "rest_period", "id": "some-id"}  # hypothetical future type
+
+        def mock_paginate(path, api_key, items_key, extra_params=None):
+            if "events" in path:
+                return [unknown_event]
+            return []
+
+        with patch("openvitals.connectors.hevy.connector._paginate_all", side_effect=mock_paginate):
+            records = list(connector.fetch(account))
+
+        assert records == []
+
+    def test_unknown_event_type_emits_warning(self, caplog):
+        """An unrecognised event type logs a warning so it's visible for future support."""
+        import logging
+        store = make_store_with_key()
+        connector = HevyConnector(store)
+        account = make_account()
+
+        unknown_event = {"type": "rest_period", "id": "some-id"}
+
+        def mock_paginate(path, api_key, items_key, extra_params=None):
+            if "events" in path:
+                return [unknown_event]
+            return []
+
+        with patch("openvitals.connectors.hevy.connector._paginate_all", side_effect=mock_paginate):
+            with caplog.at_level(logging.WARNING, logger="openvitals.connectors.hevy.connector"):
+                list(connector.fetch(account))
+
+        assert any("rest_period" in m for m in caplog.messages), (
+            "Expected a warning mentioning the unknown event type"
+        )
+
+    def test_unknown_event_alongside_known_yields_known_only(self):
+        """Unknown event is skipped; adjacent known events still yield records normally."""
+        store = make_store_with_key()
+        connector = HevyConnector(store)
+        account = make_account()
+
+        updated_event = {
+            "type": "updated",
+            "workout": load_fixture("workout_event.json")["workout"],
+        }
+        unknown_event = {"type": "rest_period", "id": "some-id"}
+
+        def mock_paginate(path, api_key, items_key, extra_params=None):
+            if "events" in path:
+                return [unknown_event, updated_event]  # newest first
+            return []
+
+        with patch("openvitals.connectors.hevy.connector._paginate_all", side_effect=mock_paginate):
+            records = list(connector.fetch(account))
+
+        assert len(records) == 1
+        assert records[0].record_type.value == "workout"
+
+
+# ---------------------------------------------------------------------------
 # Full fetch integration (mocked network)
 # ---------------------------------------------------------------------------
 

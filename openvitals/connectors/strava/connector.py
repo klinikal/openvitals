@@ -85,6 +85,7 @@ from typing import Any, Iterable
 import httpx
 
 from openvitals.connectors.base import Account, BaseConnector
+from openvitals.utils.units import kj_to_kcal as _kj_to_kcal
 from openvitals.errors import (
     AuthRequired,
     MissingScope,
@@ -190,12 +191,6 @@ def _normalize_sport_type(sport_type: str | None) -> ActivityType:
     return _SPORT_TYPE_MAP.get(sport_type, ActivityType.OTHER)
 
 
-def _kj_to_kcal(kj: float | None) -> float | None:
-    """Convert kilojoules → kilocalories (thermochemical). Returns None if input is None."""
-    if kj is None:
-        return None
-    return kj / 4.184
-
 
 # ---------------------------------------------------------------------------
 # StravaConnector
@@ -297,7 +292,7 @@ class StravaConnector(BaseConnector):
 
         IMPORTANT: The rotated refresh token is persisted to the CredentialStore
         by the caller (``connect()``) *before* the new access token is used.
-        This matches the HealthOS pattern in ``get_strava_access_token()``.
+        The rotated token must be persisted before use to prevent orphaning it on crash.
         """
         refresh_token = credential.get("refresh_token")
         if not refresh_token:
@@ -433,12 +428,14 @@ class StravaConnector(BaseConnector):
                 "re-run OAuth flow."
             )
 
-        # Re-validate (may refresh again if token expired while fetch was queued)
-        # We re-call connect() to ensure token is current
-        _ = self.connect(credential)
-        # Reload after possible refresh
-        credential = self._store.get(self.source, account.account_ref)
-        access_token = credential["access_token"]  # type: ignore[index]
+        # Inline expiry check — do NOT call connect() here. Strava rotates refresh
+        # tokens on every use; calling connect() when a token was just refreshed by
+        # the caller triggers a second rotation within seconds, invalidating the first.
+        expires_at = credential.get("expires_at", 0)
+        if time.time() + REFRESH_BUFFER_SECS >= expires_at:
+            credential = self._refresh_token(credential)
+            self._store.set(self.source, account.account_ref, credential)
+        access_token = credential["access_token"]
 
         headers = {"Authorization": f"Bearer {access_token}"}
         after_epoch: int | None = None

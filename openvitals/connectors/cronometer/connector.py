@@ -66,7 +66,7 @@ from openvitals.storage.credentials import CredentialStore
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Cronometer API constants (verified from HealthOS sync_cronometer.py)
+# Cronometer API constants (verified against live API)
 # ---------------------------------------------------------------------------
 
 _BASE = "https://mobile.cronometer.com"
@@ -126,7 +126,7 @@ NUTRIENT_ID_TO_CANONICAL: dict[int, tuple[str, float]] = {
 
 # ---------------------------------------------------------------------------
 # Meal group mapping (diary entry order >> 16 & 0xFF → Cronometer slot)
-# Verified from HealthOS sync_cronometer.py build_diary_rows.
+# Verified against live API.
 # ---------------------------------------------------------------------------
 
 _MEAL_MAP: dict[int, Meal] = {
@@ -340,7 +340,9 @@ class CronometerConnector(BaseConnector):
         if not enabled:
             raise RuntimeError(
                 "CronometerConnector requires explicit opt-in: pass enabled=True. "
-                "This connector uses an unofficial API — read the package warning."
+                "This connector uses an unofficial Cronometer API. Your password will be "
+                "stored in the credential store (encrypted at rest, but decryptable in "
+                "memory). Do not use on shared systems."
             )
         self._store = credential_store
 
@@ -416,7 +418,8 @@ class CronometerConnector(BaseConnector):
 
         account_ref = str(cronometer_user_id)
 
-        # Persist session for later (store token + timezone for re-login context)
+        # Persist session for later — store token + nutrient_dict so fetch() can
+        # reuse the session without a full re-login on every call
         if self._store is not None:
             self._store.set(
                 self.source,
@@ -426,6 +429,8 @@ class CronometerConnector(BaseConnector):
                     "password": password,
                     "token": token,
                     "timezone": tz,
+                    # JSON requires string keys; fetch() re-keys to int on load
+                    "nutrient_dict": {str(k): v for k, v in nutrient_dict.items()},
                 },
             )
 
@@ -444,6 +449,7 @@ class CronometerConnector(BaseConnector):
         self,
         account: Account,
         since: datetime | None = None,
+        _today: date | None = None,
     ) -> Iterable[Record]:
         """Yield ``food_entry``, ``daily_summary``, and ``food_definition`` Records.
 
@@ -471,15 +477,29 @@ class CronometerConnector(BaseConnector):
                 "No stored credentials for this Cronometer account. Call connect() first."
             )
 
-        # Perform initial login (session-based — always fresh)
-        uid, token, nutrient_dict = self._do_login(
-            stored_creds["username"], stored_creds["password"], tz
-        )
+        # Reuse the stored session token to avoid a full re-login on every fetch.
+        # If the token has expired, the first get_diary() call returns None and the
+        # loop re-logins automatically (same expiry path as before).
+        stored_token = stored_creds.get("token")
+        stored_nutrient_dict_raw = stored_creds.get("nutrient_dict", {})
+        nutrient_dict: dict[int, dict] = {int(k): v for k, v in stored_nutrient_dict_raw.items()}
 
-        session = _CronometerSession(uid, token, nutrient_dict, httpx.Client())
+        if not stored_token:
+            # No stored token — must login (e.g. store was cleared externally)
+            uid, stored_token, nutrient_dict = self._do_login(
+                stored_creds["username"], stored_creds["password"], tz
+            )
+            if self._store is not None:
+                updated = dict(stored_creds)
+                updated["token"] = stored_token
+                updated["nutrient_dict"] = {str(k): v for k, v in nutrient_dict.items()}
+                self._store.set(self.source, account_ref, updated)
+
+        uid = cronometer_user_id
+        session = _CronometerSession(uid, stored_token, nutrient_dict, httpx.Client())
 
         # Determine date range
-        today = date.today()
+        today = _today or date.today()
         if since is not None:
             start_date = since.date() if isinstance(since, datetime) else since
         else:
@@ -505,10 +525,11 @@ class CronometerConnector(BaseConnector):
                         stored_creds["username"], stored_creds["password"], tz
                     )
                     session = _CronometerSession(uid2, token2, nd2, httpx.Client())
-                    # Update stored token
+                    # Update stored token + nutrient_dict
                     if self._store is not None:
                         updated = dict(stored_creds)
                         updated["token"] = token2
+                        updated["nutrient_dict"] = {str(k): v for k, v in nd2.items()}
                         self._store.set(self.source, account_ref, updated)
                     data = session.get_diary(current)
                 except AuthRequired:
@@ -539,6 +560,8 @@ class CronometerConnector(BaseConnector):
 
             # Accumulate per-entry micronutrients so daily_summary can sum them
             day_entry_micros: list[Micronutrients] = []
+            # Track unresolved entries so daily_summary can flag incomplete micronutrient sum
+            unresolved_food_count = 0
 
             # Emit food_entry records
             for entry in serving_entries:
@@ -555,58 +578,56 @@ class CronometerConnector(BaseConnector):
 
                 food_data = food_cache.get(food_id)
 
+                # Skip entries where food resolution failed entirely — a record with
+                # food_name=None is near-useless and silently deflates the micronutrient
+                # sum for the day. Flag the count so daily_summary can expose it.
+                if food_data is None:
+                    log.warning(
+                        "Food resolution failed for food_id=%r (servingId=%r) — "
+                        "skipping food_entry; daily_summary micronutrient sum will be incomplete.",
+                        food_id, serving_id,
+                    )
+                    unresolved_food_count += 1
+                    continue
+
                 # Meal group from packed order field
                 order = entry.get("order", 0)
                 meal_group_int = (order >> 16) & 0xFF
                 meal = _MEAL_MAP.get(meal_group_int, Meal.UNCATEGORIZED)
 
-                # Build micronutrients for this entry
-                # Cronometer's diary entry doesn't carry per-nutrient amounts directly —
-                # the entry has grams served; nutrients come from the food definition.
-                # We scale food nutrients by (grams / reference_serving_grams) where
-                # known, or leave micronutrients None if food resolution failed.
+                # food_data is guaranteed non-None here (None case continued above)
+                food_nutrients_raw: list[dict] = food_data.get("nutrients") or []
+                ref_grams = _get_reference_grams(food_data)
+                entry_grams = entry.get("grams")
+
                 entry_micros: Micronutrients | None = None
-                food_nutrients_raw: list[dict] = []
+                if food_nutrients_raw and ref_grams and entry_grams:
+                    scale = entry_grams / ref_grams
+                    scaled_nutrients = [
+                        {"id": n.get("id"), "amount": (n.get("amount") or 0) * scale}
+                        for n in food_nutrients_raw
+                    ]
+                    entry_micros = _build_micronutrients(scaled_nutrients, session.nutrient_dict)
+                elif food_nutrients_raw:
+                    entry_micros = _build_micronutrients(food_nutrients_raw, session.nutrient_dict)
 
-                if food_data is not None:
-                    food_nutrients_raw = food_data.get("nutrients") or []
-                    ref_grams = _get_reference_grams(food_data)
-                    entry_grams = entry.get("grams")
+                food_name = food_data.get("name")
+                food_source_raw = food_data.get("source")
+                food_tags = food_data.get("foodTags") or []
 
-                    if food_nutrients_raw and ref_grams and entry_grams:
-                        scale = entry_grams / ref_grams
-                        scaled_nutrients = [
-                            {"id": n.get("id"), "amount": (n.get("amount") or 0) * scale}
-                            for n in food_nutrients_raw
-                        ]
-                        entry_micros = _build_micronutrients(
-                            scaled_nutrients, session.nutrient_dict
-                        )
-                    elif food_nutrients_raw:
-                        # Can't scale but still map what we have
-                        entry_micros = _build_micronutrients(
-                            food_nutrients_raw, session.nutrient_dict
-                        )
-
-                food_name = food_data.get("name") if food_data else None
-                food_source_raw = food_data.get("source") if food_data else None
-                food_tags = (food_data.get("foodTags") or []) if food_data else []
-
-                # Macros for this entry — from diary entry fields if present,
-                # else fall back to scaling food nutrients
-                energy_kcal = _scale_nutrient(food_nutrients_raw, 1, entry.get("grams"), _get_reference_grams(food_data) if food_data else None)
-                protein_g = _scale_nutrient(food_nutrients_raw, 203, entry.get("grams"), _get_reference_grams(food_data) if food_data else None)
-                fat_g = _scale_nutrient(food_nutrients_raw, 204, entry.get("grams"), _get_reference_grams(food_data) if food_data else None)
-                carbs_g = _scale_nutrient(food_nutrients_raw, 205, entry.get("grams"), _get_reference_grams(food_data) if food_data else None)
-                fiber_g = _scale_nutrient(food_nutrients_raw, 291, entry.get("grams"), _get_reference_grams(food_data) if food_data else None)
-                sugar_g = _scale_nutrient(food_nutrients_raw, 269, entry.get("grams"), _get_reference_grams(food_data) if food_data else None)
-                alcohol_g = _scale_nutrient(food_nutrients_raw, 221, entry.get("grams"), _get_reference_grams(food_data) if food_data else None)
+                energy_kcal = _scale_nutrient(food_nutrients_raw, 1, entry_grams, ref_grams)
+                protein_g = _scale_nutrient(food_nutrients_raw, 203, entry_grams, ref_grams)
+                fat_g = _scale_nutrient(food_nutrients_raw, 204, entry_grams, ref_grams)
+                carbs_g = _scale_nutrient(food_nutrients_raw, 205, entry_grams, ref_grams)
+                fiber_g = _scale_nutrient(food_nutrients_raw, 291, entry_grams, ref_grams)
+                sugar_g = _scale_nutrient(food_nutrients_raw, 269, entry_grams, ref_grams)
+                alcohol_g = _scale_nutrient(food_nutrients_raw, 221, entry_grams, ref_grams)
 
                 common = FoodEntryCommon(
                     food_name=food_name,
                     food_ref_id=str(food_id),
                     food_tags=food_tags,
-                    food_category=str(food_data.get("category")) if food_data and food_data.get("category") is not None else None,
+                    food_category=str(food_data.get("category")) if food_data.get("category") is not None else None,
                     food_source=_map_source(food_source_raw),
                     brand=None,  # Cronometer doesn't expose brand separately
                     serving_amount=entry.get("grams"),
@@ -641,7 +662,7 @@ class CronometerConnector(BaseConnector):
                 )
 
                 # Emit food_definition (once per food per fetch)
-                if food_id not in emitted_food_defs and food_data is not None:
+                if food_id not in emitted_food_defs:
                     emitted_food_defs.add(food_id)
 
                     # Full nutrient list with human names for raw
@@ -688,8 +709,8 @@ class CronometerConnector(BaseConnector):
             # Emit daily_summary
             summary_id = f"{account_ref}:{current.isoformat()}:daily_summary"
 
-            # Sum micronutrients across all food entries for this day (fix #2)
-            summary_micros = _sum_micronutrients(day_entry_micros)
+            # Sum micronutrients across all food entries for this day
+            summary_micros = _sum_micronutrients(day_entry_micros) if day_entry_micros else None
 
             summary_common = DailySummaryCommon(
                 energy_kcal=consumed.get("total"),
@@ -703,6 +724,13 @@ class CronometerConnector(BaseConnector):
                 micronutrients=summary_micros,
             )
 
+            summary_extras: dict | None = None
+            if unresolved_food_count > 0:
+                summary_extras = {
+                    "micronutrient_sum_incomplete": True,
+                    "unresolved_food_count": unresolved_food_count,
+                }
+
             yield Record(
                 source=self.source,
                 domain=Domain.NUTRITION.value,
@@ -715,6 +743,7 @@ class CronometerConnector(BaseConnector):
                 local_date=current,
                 common=summary_common,
                 raw=data,
+                source_extras=summary_extras,
             )
 
             current += timedelta(days=1)

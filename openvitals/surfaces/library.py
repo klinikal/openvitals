@@ -66,15 +66,26 @@ class OpenVitals:
         self._credential_store = credential_store
 
     @classmethod
-    def with_builtins(cls, credential_store: CredentialStore | None = None) -> "OpenVitals":
+    def with_builtins(
+        cls,
+        credential_store: CredentialStore | None = None,
+        *,
+        enable_unofficial: bool = False,
+    ) -> "OpenVitals":
         """
-        Return an ``OpenVitals`` instance with all built-in connectors
-        pre-registered (WHOOP, Strava, Withings, Hevy, Cronometer).
+        Return an ``OpenVitals`` instance with built-in connectors pre-registered.
+
+        By default registers: WHOOP, Strava, Withings, Hevy.
 
         Parameters
         ----------
         credential_store:
             Passed through to ``__init__``.  See :meth:`__init__` for details.
+        enable_unofficial:
+            Set to ``True`` to also register CronometerConnector.  Cronometer
+            uses an unofficial API, stores your password encrypted at rest, and
+            requires explicit opt-in per connector-contract.md.  Do not enable
+            on shared systems.
         """
         instance = cls(credential_store=credential_store)
         instance.register(WhoopConnector(credential_store=credential_store))
@@ -87,9 +98,10 @@ class OpenVitals:
         )
         instance.register(WithingsConnector(credential_store=credential_store))
         instance.register(HevyConnector(credential_store=credential_store))
-        instance.register(
-            CronometerConnector(credential_store=credential_store, enabled=True)
-        )
+        if enable_unofficial:
+            instance.register(
+                CronometerConnector(credential_store=credential_store, enabled=True)
+            )
         return instance
 
     def register(self, connector: BaseConnector) -> None:

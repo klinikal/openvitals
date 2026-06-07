@@ -647,3 +647,69 @@ class TestHelpers:
         result = _build_full_nutrient_list([{"id": 9999, "amount": 1.0}], nutrient_dict)
         assert result[0]["name"] is None
         assert result[0]["unit"] is None
+
+
+# ---------------------------------------------------------------------------
+# Tests — food resolution failure
+# ---------------------------------------------------------------------------
+
+
+class TestFoodResolutionFailure:
+    """When get_food() returns None, the food_entry is silently skipped and
+    daily_summary is flagged with micronutrient_sum_incomplete=True."""
+
+    def _fetch_with_failed_food(self, diary_response, nutrient_dict) -> list:
+        """Run fetch where get_food always returns None."""
+        from openvitals.connectors.base import Account
+
+        store = FakeStore({"cronometer:42": {"username": "u", "password": "p", "token": "t", "timezone": "UTC"}})
+        connector = _make_connector(store)
+        account = Account(
+            account_ref="42",
+            source="cronometer",
+            metadata={"cronometer_user_id": 42, "timezone": "UTC"},
+        )
+
+        with (
+            patch(
+                "openvitals.connectors.cronometer.connector.CronometerConnector._do_login",
+                return_value=_fake_login_result(42, nutrient_dict),
+            ),
+            patch("openvitals.connectors.cronometer.connector._CronometerSession") as MockSession,
+            patch("openvitals.connectors.cronometer.connector.time.sleep"),
+        ):
+            session_instance = MagicMock()
+            session_instance.nutrient_dict = nutrient_dict
+            session_instance.get_diary.return_value = diary_response
+            session_instance.get_food.return_value = None  # all food resolutions fail
+            MockSession.return_value = session_instance
+
+            since_dt = datetime(2026, 6, 7, 0, 0, 0, tzinfo=UTC)
+            return list(connector.fetch(account, since=since_dt))
+
+    def test_no_food_entry_records_emitted(self, diary_response, nutrient_dict):
+        records = self._fetch_with_failed_food(diary_response, nutrient_dict)
+        food_entries = [r for r in records if r.record_type == RecordType.FOOD_ENTRY]
+        assert food_entries == [], "food_entry records must be skipped when food resolution fails"
+
+    def test_daily_summary_still_emitted(self, diary_response, nutrient_dict):
+        records = self._fetch_with_failed_food(diary_response, nutrient_dict)
+        summaries = [r for r in records if r.record_type == RecordType.DAILY_SUMMARY]
+        assert len(summaries) == 1, "daily_summary must still be emitted even when all food entries fail"
+
+    def test_daily_summary_flagged_incomplete(self, diary_response, nutrient_dict):
+        records = self._fetch_with_failed_food(diary_response, nutrient_dict)
+        summary = next(r for r in records if r.record_type == RecordType.DAILY_SUMMARY)
+        assert summary.source_extras is not None
+        assert summary.source_extras.get("micronutrient_sum_incomplete") is True
+
+    def test_unresolved_food_count_in_extras(self, diary_response, nutrient_dict):
+        records = self._fetch_with_failed_food(diary_response, nutrient_dict)
+        summary = next(r for r in records if r.record_type == RecordType.DAILY_SUMMARY)
+        count = summary.source_extras.get("unresolved_food_count", 0)
+        assert count > 0, "unresolved_food_count must be positive when food entries were skipped"
+
+    def test_summary_micros_none_when_all_fail(self, diary_response, nutrient_dict):
+        records = self._fetch_with_failed_food(diary_response, nutrient_dict)
+        summary = next(r for r in records if r.record_type == RecordType.DAILY_SUMMARY)
+        assert summary.common.micronutrients is None, "micronutrients must be None when no food entries resolved"

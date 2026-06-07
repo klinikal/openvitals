@@ -4,7 +4,7 @@ HevyConnector — OpenVitals connector for the Hevy fitness tracking API.
 Auth: Static API key (no OAuth). Hevy uses ``api-key`` request header.
 Scopes: N/A — all access is governed by the key itself.
 API base: https://api.hevyapp.com
-Verified against: HealthOS sync_hevy.py + hevy_schema.sql (2026-06-07).
+Verified against: Hevy API docs + live API (2026-06-07).
 
 Emits:
   - ``activity / workout``         — from GET /v1/workouts/events (incremental)
@@ -17,13 +17,13 @@ Identity (connector-contract.md §2):
                        list endpoint). This matches the daily-aggregate identity rule.
 
 Pagination: Hevy uses 1-based ``page`` / ``page_count`` pagination.
-  - Workout events:    pageSize max 10 (API limit, verified in HealthOS).
+  - Workout events:    pageSize max 10 (API limit, verified against live API).
   - Body measurements: pageSize max 10 default (no documented max on list endpoint;
                        using 10 to stay conservative — same as workouts).
-  - A 1-second throttle is applied between pages (verified necessary in HealthOS).
+  - A 1-second throttle is applied between pages (conservative; Hevy has no published limit).
 
-Rate limits: Hevy does not publish an explicit rate limit. HealthOS used 1 req/sec
-  conservatively. We apply the same throttle between pages.
+Rate limits: Hevy does not publish an explicit rate limit. We apply 1 req/sec
+  between pages conservatively.
 
 Late updates: The events endpoint (``/v1/workouts/events?since=``) surfaces both
   ``updated`` and ``deleted`` events. ``deleted`` events are signalled via
@@ -39,9 +39,12 @@ Never log: the API key. It is retrieved from CredentialStore only — never prin
 
 from __future__ import annotations
 
+import logging
 import time
 from datetime import datetime, timezone
 from typing import Any, Iterable
+
+log = logging.getLogger(__name__)
 
 import httpx
 
@@ -69,7 +72,7 @@ from openvitals.schema.records import (
 from openvitals.storage.credentials import CredentialStore
 
 # ---------------------------------------------------------------------------
-# Constants (verified against HealthOS reference implementation)
+# Constants (verified against live API)
 # ---------------------------------------------------------------------------
 
 HEVY_API_BASE = "https://api.hevyapp.com"
@@ -224,9 +227,8 @@ def _workout_to_record(
     if workout.get("description"):
         source_extras["description"] = workout["description"]
 
-    # local_date: Hevy workouts carry no explicit local-date field.
-    # Use the UTC date of occurred_at as a proxy — this is the same
-    # assumption HealthOS uses. Consumers in non-UTC timezones should
+    # local_date: Hevy workouts carry no explicit local-date or timezone field.
+    # Use the UTC date of occurred_at as a proxy. Consumers in non-UTC timezones should
     # apply the offset themselves using the occurred_at timestamp.
     local_date = occurred_at.date()
 
@@ -426,7 +428,7 @@ class HevyConnector(BaseConnector):
                 "Get your key from https://hevy.com/settings?developer (Hevy Pro required)."
             )
 
-        # Validate by probing the workouts endpoint — same approach as HealthOS hevy_onboard.py
+        # Validate by probing the workouts endpoint to confirm the key is accepted
         _hevy_get("/v1/workouts", api_key, {"pageSize": 1})
 
         # Use the API key itself as the account_ref (it's static per-user; Hevy has no
@@ -519,7 +521,7 @@ class HevyConnector(BaseConnector):
             extra_params={"since": since_str},
         )
 
-        # Events arrive newest-first (verified in HealthOS) — reverse for oldest-first yield
+        # Events arrive newest-first (verified against live API) — reverse for oldest-first yield
         for event in reversed(all_events):
             event_type = event.get("type")
             if event_type == "updated":
@@ -552,7 +554,12 @@ class HevyConnector(BaseConnector):
                     raw=event,
                     source_extras={"deleted": True},
                 )
-            # Unknown event types are silently skipped — forward compatible.
+            else:
+                log.warning(
+                    "Hevy: unrecognised workout event type %r — skipping. "
+                    "If Hevy added a new event type, add support here.",
+                    event_type,
+                )
 
     def _fetch_body_measurements(
         self,

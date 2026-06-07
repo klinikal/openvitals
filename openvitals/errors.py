@@ -79,17 +79,20 @@ class PartialFetchError(OpenVitalsError):
     least one failed mid-stream.  The caller should NOT advance its watermark
     past the gap.
 
-    ``records_fetched`` is the count of records that were successfully yielded
-    before the error.  ``cause`` is the underlying exception.
+    ``records`` contains the records collected before the failure (may be empty).
+    ``records_fetched`` mirrors ``len(records)`` for callers that only need the count.
+    ``cause`` is the underlying exception.
     """
 
     def __init__(
         self,
         message: str,
         *,
+        records: list | None = None,
         records_fetched: int = 0,
         cause: Exception | None = None,
     ) -> None:
         super().__init__(message)
-        self.records_fetched = records_fetched
+        self.records = records or []
+        self.records_fetched = len(self.records) if records else records_fetched
         self.cause = cause

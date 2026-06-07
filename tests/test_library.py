@@ -156,20 +156,20 @@ class TestOpenVitalsLibrary:
 
 
 class TestBuiltins:
-    """with_builtins() must register exactly the five v0.1 connectors."""
+    """with_builtins() registers official connectors by default; Cronometer needs enable_unofficial=True."""
 
-    def test_with_builtins_registers_all_five(self):
+    def test_with_builtins_registers_four_official(self):
+        """Default with_builtins() excludes Cronometer (unofficial API requires opt-in)."""
         ov = OpenVitals.with_builtins()
-        assert set(ov.sources) == {
-            "whoop",
-            "strava",
-            "withings",
-            "hevy",
-            "cronometer",
-        }
+        assert set(ov.sources) == {"whoop", "strava", "withings", "hevy"}
+
+    def test_with_builtins_with_unofficial_registers_all_five(self):
+        """enable_unofficial=True adds Cronometer to the registry."""
+        ov = OpenVitals.with_builtins(enable_unofficial=True)
+        assert set(ov.sources) == {"whoop", "strava", "withings", "hevy", "cronometer"}
 
     def test_builtins_resolvable_and_unknown_raises(self):
-        ov = OpenVitals.with_builtins()
+        ov = OpenVitals.with_builtins(enable_unofficial=True)
         for source in ("whoop", "strava", "withings", "hevy", "cronometer"):
             assert source in ov.available()
         with pytest.raises(KeyError):

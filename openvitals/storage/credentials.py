@@ -24,12 +24,15 @@ Use ``[[ -n "$OPENVITALS_ENCRYPTION_KEY" ]] && echo set`` to check existence.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import stat
 from abc import ABC, abstractmethod
 from pathlib import Path
 
 from cryptography.fernet import Fernet
+
+log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # ABC
@@ -55,8 +58,9 @@ class CredentialStore(ABC):
     (OAuth token bundles, API keys, session cookies — whatever the connector
     needs).
 
-    HealthOS supplies its own Supabase-backed implementation of this ABC;
-    ``EncryptedFileStore`` is the default for local/self-hosted use.
+    Consumers may supply their own implementation of this ABC (e.g. a
+    database-backed store); ``EncryptedFileStore`` is the default for
+    local/self-hosted use.
     """
 
     @abstractmethod
@@ -146,7 +150,11 @@ class EncryptedFileStore(CredentialStore):
         try:
             with self._path.open("r") as f:
                 return json.load(f)
-        except (json.JSONDecodeError, OSError):
+        except json.JSONDecodeError as exc:
+            log.warning("Credential store at %s is corrupt (JSONDecodeError: %s) — treating as empty.", self._path, exc)
+            return {}
+        except OSError as exc:
+            log.warning("Could not read credential store at %s (%s: %s) — treating as empty.", self._path, type(exc).__name__, exc)
             return {}
 
     def _save(self, data: dict[str, str]) -> None:

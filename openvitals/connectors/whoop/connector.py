@@ -2,8 +2,6 @@
 WHOOP connector for OpenVitals.
 
 API: WHOOP Developer API v2 — https://api.prod.whoop.com/developer/v2
-Local reference: /Users/james/Documents/Projects/HealthOS/docs/whoop-api-reference.md
-Verified reference implementation: HealthOS sync_whoop.py + whoop_oauth.py + db.get_whoop_access_token
 
 ## Endpoints used
 - GET /v2/activity/sleep     → sleep_session records
@@ -30,7 +28,7 @@ read:recovery read:cycles read:sleep read:workout read:profile offline
 ## Token rotation
 WHOOP rotates the refresh token on every use.  ``connect()`` refreshes on expiry
 (< 5 minutes remaining) and immediately persists the new refresh token.  Losing
-this step orphans the token permanently (HealthOS lesson — see whoop-api-reference.md).
+this step orphans the token permanently — do not skip the persist step.
 
 ## Auth credentials dict shape (CredentialStore key = ("whoop", account_ref))
 {
@@ -60,6 +58,7 @@ from typing import Any, Iterable
 import httpx
 
 from openvitals.connectors.base import Account, BaseConnector
+from openvitals.utils.units import kj_to_kcal as _kj_to_kcal
 from openvitals.errors import (
     AuthRequired,
     MissingScope,
@@ -215,12 +214,6 @@ def _millis_to_minutes(ms: float | int | None) -> float | None:
         return None
     return round(ms / 60_000, 1)
 
-
-def _kj_to_kcal(kj: float | None) -> float | None:
-    """Convert kilojoules → kilocalories (1 kJ = 0.239006 kcal)."""
-    if kj is None:
-        return None
-    return round(kj * 0.239006, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -562,7 +555,7 @@ class WhoopConnector(BaseConnector):
             if collected:
                 raise PartialFetchError(
                     f"Sleep fetch failed mid-stream: {exc}",
-                    records_fetched=records_fetched,
+                    records=list(collected),
                     cause=exc,
                 ) from exc
             raise
@@ -590,13 +583,13 @@ class WhoopConnector(BaseConnector):
             if collected:
                 raise PartialFetchError(
                     "Recovery/cycle fetch failed after sleep records were collected.",
-                    records_fetched=records_fetched,
+                    records=list(collected),
                 )
             raise
         except Exception as exc:
             raise PartialFetchError(
                 f"Recovery fetch failed mid-stream: {exc}",
-                records_fetched=records_fetched,
+                records=list(collected),
                 cause=exc,
             ) from exc
 
@@ -616,13 +609,13 @@ class WhoopConnector(BaseConnector):
             if collected:
                 raise PartialFetchError(
                     "Workout fetch failed after earlier domains collected records.",
-                    records_fetched=records_fetched,
+                    records=list(collected),
                 )
             raise
         except Exception as exc:
             raise PartialFetchError(
                 f"Workout fetch failed mid-stream: {exc}",
-                records_fetched=records_fetched,
+                records=list(collected),
                 cause=exc,
             ) from exc
 
@@ -642,7 +635,6 @@ class WhoopConnector(BaseConnector):
 
         Naps (raw["nap"] == True) are included — they are valid sleep events.
         ASSUMPTION: nap filtering is a consumer decision, not connector policy.
-        Verify before ship if HealthOS disagrees.
 
         Returns None only if the record is missing a required ID or start time,
         which would make it unidentifiable.  This is logged as a ProviderPayloadError.
@@ -668,7 +660,7 @@ class WhoopConnector(BaseConnector):
         score = raw.get("score") or {}
         stage_summary = score.get("stage_summary") or {}
 
-        # total_sleep = in_bed - awake (HealthOS reference formula)
+        # total_sleep = in_bed - awake
         in_bed_ms = stage_summary.get("total_in_bed_time_milli")
         awake_ms = stage_summary.get("total_awake_time_milli")
         if in_bed_ms is not None and awake_ms is not None:
@@ -740,7 +732,7 @@ class WhoopConnector(BaseConnector):
         """Map a WHOOP /recovery record → daily_recovery Record.
 
         Identity: daily aggregate → source_record_id = f"{account_ref}:{local_date}:daily_recovery"
-        Date: from cycle.start[:10] (HealthOS reference pattern).
+        Date: derived from cycle.start with timezone_offset applied.
 
         Returns None only if local_date cannot be determined (truly unparseable).
         All score states (SCORED, PENDING, UNSCORED) are emitted.
@@ -748,26 +740,31 @@ class WhoopConnector(BaseConnector):
         rec_score = raw_rec.get("score") or {}
         score_state = _map_score_state(raw_rec.get("score_state"))
 
-        # Date from cycle.start (HealthOS reference)
+        # Date from cycle.start with timezone_offset applied
         cycle_id = raw_rec.get("cycle_id")
         cycle = cycles_by_id.get(cycle_id, {}) if cycle_id is not None else {}
         cycle_start = cycle.get("start") or raw_rec.get("created_at", "")
-        local_date_str = cycle_start[:10] if cycle_start else None
 
-        if not local_date_str:
+        if not cycle_start:
             raise ProviderPayloadError(
                 f"WHOOP recovery record {raw_rec.get('id')!r} has no usable date "
                 "(cycle.start and created_at both missing)."
             )
 
-        try:
-            local_date = date.fromisoformat(local_date_str)
-        except ValueError as exc:
+        # Apply timezone_offset before taking the date — same pattern as sleep/workout.
+        # Cycles that start near midnight in the user's local timezone would attribute
+        # to the wrong calendar day if we slice the UTC string directly.
+        utc_dt = _parse_utc(cycle_start)
+        if utc_dt is None:
             raise ProviderPayloadError(
-                f"Cannot parse local_date {local_date_str!r} for recovery: {exc}"
-            ) from exc
+                f"WHOOP recovery record {raw_rec.get('id')!r} has unparseable date: {cycle_start!r}"
+            )
+        tz_offset = cycle.get("timezone_offset")
+        local_date = _local_date_from_utc(utc_dt, tz_offset)
+        if local_date is None:
+            local_date = utc_dt.date()
 
-        source_record_id = f"{account_ref}:{local_date_str}:daily_recovery"
+        source_record_id = f"{account_ref}:{local_date.isoformat()}:daily_recovery"
 
         # occurred_at: use cycle start as the "event start" for this daily record
         occurred_at = _parse_utc(cycle_start) or _parse_utc(raw_rec.get("created_at"))
@@ -848,7 +845,7 @@ class WhoopConnector(BaseConnector):
 
         score = raw.get("score") or {}
 
-        # Duration: derive from start/end timestamps (HealthOS reference pattern)
+        # Duration: derive from start/end timestamps
         duration_minutes: float | None = None
         if start_ts and end_ts:
             duration_seconds = (end_ts - start_ts).total_seconds()

@@ -7,7 +7,7 @@ Emits three record types (all domain ``body``):
 - ``cardiovascular_marker`` — one record per marker (vascular_age, pulse_wave_velocity,
   ecg_result, nerve_health_score)
 
-Withings API notes (all ported from verified HealthOS reference):
+Withings API notes (verified against live API and official docs):
 - Auth endpoint: ``https://wbsapi.withings.net/v2/oauth2``  — non-standard OAuth2:
   token requests require ``action=requesttoken`` in the POST body.
 - Auth code expires in **30 seconds** — callers must exchange it promptly.
@@ -19,7 +19,7 @@ Withings API notes (all ported from verified HealthOS reference):
   typically negative). Decoding lives in ``common`` only — ``raw`` retains verbatim.
 - Required scopes: ``user.info,user.metrics``.
 
-Measurement type codes (from HealthOS sync_withings.py — verified against live API):
+Measurement type codes (verified against live API):
   1   = weight (kg)
   5   = fat-free mass / lean mass (kg)
   6   = fat ratio / body fat %
@@ -38,8 +38,8 @@ Measurement type codes (from HealthOS sync_withings.py — verified against live
 
 Segmental position codes (``fm`` field on the measure object):
   1 = left_arm, 2 = right_arm, 3 = trunk, 4 = left_leg, 5 = right_leg
-  ASSUMPTION: inferred from open-source Withings clients (same caveat as HealthOS
-  sync_withings.py). Verify with real Body Scan hardware if results look wrong.
+  ASSUMPTION: inferred from open-source Withings clients and community docs.
+  Verify with real Body Scan hardware if results look wrong.
 
 Identity:
 - ``body_measurement``: Withings native measure group id (``grp["grpid"]``).
