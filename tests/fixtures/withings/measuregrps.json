@@ -1,0 +1,63 @@
+[
+  {
+    "grpid": 111001,
+    "attrib": 0,
+    "date": 1749254400,
+    "created": 1749254460,
+    "modified": 1749254460,
+    "category": 1,
+    "deviceid": "abc123redacted",
+    "hash_deviceid": "hash_redacted",
+    "measures": [
+      {"type": 1,  "unit": -2, "value": 8200},
+      {"type": 5,  "unit": -2, "value": 6710},
+      {"type": 6,  "unit": -1, "value": 185},
+      {"type": 8,  "unit": -2, "value": 1518},
+      {"type": 76, "unit": -2, "value": 6200},
+      {"type": 77, "unit": -2, "value": 4820},
+      {"type": 88, "unit": -2, "value": 340},
+      {"type": 170,"unit":  0, "value": 7}
+    ],
+    "comment": ""
+  },
+  {
+    "grpid": 111002,
+    "attrib": 0,
+    "date": 1749254400,
+    "created": 1749254460,
+    "modified": 1749254460,
+    "category": 1,
+    "deviceid": "abc123redacted",
+    "hash_deviceid": "hash_redacted",
+    "measures": [
+      {"type": 91,  "unit": -2, "value": 842, "fm": 0},
+      {"type": 130, "unit":  0, "value": 0,   "fm": 0},
+      {"type": 155, "unit":  0, "value": 38,  "fm": 0},
+      {"type": 167, "unit": -1, "value": 920, "fm": 0}
+    ],
+    "comment": ""
+  },
+  {
+    "grpid": 111003,
+    "attrib": 0,
+    "date": 1749254400,
+    "created": 1749254460,
+    "modified": 1749254460,
+    "category": 1,
+    "deviceid": "abc123redacted",
+    "hash_deviceid": "hash_redacted",
+    "measures": [
+      {"type": 174, "unit": -2, "value": 320,  "fm": 1},
+      {"type": 175, "unit": -2, "value": 3200, "fm": 1},
+      {"type": 174, "unit": -2, "value": 315,  "fm": 2},
+      {"type": 175, "unit": -2, "value": 3250, "fm": 2},
+      {"type": 174, "unit": -2, "value": 1650, "fm": 3},
+      {"type": 175, "unit": -2, "value": 2800, "fm": 3},
+      {"type": 174, "unit": -2, "value": 1020, "fm": 4},
+      {"type": 175, "unit": -2, "value": 1020, "fm": 4},
+      {"type": 174, "unit": -2, "value": 990,  "fm": 5},
+      {"type": 175, "unit": -2, "value": 1040, "fm": 5}
+    ],
+    "comment": ""
+  }
+]
