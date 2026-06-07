@@ -476,15 +476,19 @@ class HevyConnector(BaseConnector):
 
         records_yielded = 0
         try:
-            yield from self._fetch_workouts(account.account_ref, api_key, since, ingested_at)
+            for record in self._fetch_workouts(account.account_ref, api_key, since, ingested_at):
+                records_yielded += 1
+                yield record
             # Body measurements: full pass each time (no cursor available)
-            yield from self._fetch_body_measurements(account.account_ref, api_key, ingested_at)
-        except (AuthRequired, RateLimited, ProviderUnavailable, ProviderPayloadError):
+            for record in self._fetch_body_measurements(account.account_ref, api_key, ingested_at):
+                records_yielded += 1
+                yield record
+        except (AuthRequired, RateLimited, ProviderUnavailable, ProviderPayloadError) as exc:
             if records_yielded > 0:
                 raise PartialFetchError(
                     "Fetch failed mid-stream.",
                     records_fetched=records_yielded,
-                )
+                ) from exc
             raise
 
     def _fetch_workouts(
