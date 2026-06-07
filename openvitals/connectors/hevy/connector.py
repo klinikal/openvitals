@@ -96,13 +96,16 @@ _SET_TYPE_MAP: dict[str, SetType] = {
 
 
 def _map_set_type(hevy_type: str | None) -> SetType:
-    """Map Hevy set type string to SetType enum. Unknown values → NORMAL (loud assumption documented)."""
+    """Map Hevy set type string to SetType enum. Unknown values default to NORMAL with a warning."""
     if hevy_type is None:
         return SetType.NORMAL
     mapped = _SET_TYPE_MAP.get(hevy_type.lower())
     if mapped is None:
-        # Unknown type: default to NORMAL. This is intentional — Hevy may add new types.
-        # Callers can see the original in raw.exercises[].sets[].type.
+        log.warning(
+            "Hevy: unrecognised set type %r — defaulting to NORMAL. "
+            "Original value is preserved in raw.exercises[].sets[].type.",
+            hevy_type,
+        )
         return SetType.NORMAL
     return mapped
 
@@ -483,20 +486,20 @@ class HevyConnector(BaseConnector):
         api_key: str = creds["hevy_api_key"]
         ingested_at = datetime.now(UTC)
 
-        records_yielded = 0
+        collected: list[Record] = []
         try:
             for record in self._fetch_workouts(account.account_ref, api_key, since, ingested_at):
-                records_yielded += 1
+                collected.append(record)
                 yield record
             # Body measurements: full pass each time (no cursor available)
             for record in self._fetch_body_measurements(account.account_ref, api_key, ingested_at):
-                records_yielded += 1
+                collected.append(record)
                 yield record
         except (AuthRequired, RateLimited, ProviderUnavailable, ProviderPayloadError) as exc:
-            if records_yielded > 0:
+            if collected:
                 raise PartialFetchError(
                     "Fetch failed mid-stream.",
-                    records_fetched=records_yielded,
+                    records=list(collected),
                 ) from exc
             raise
 

@@ -370,6 +370,11 @@ class WhoopConnector(BaseConnector):
         if not access_token or time.time() > (expires_at - _EXPIRY_BUFFER_SECONDS):
             credentials = self._refresh_access_token(credentials)
             access_token = credentials["access_token"]
+            # Persist the refreshed bundle immediately using the embedded account_ref
+            # (written on first connect below).  This prevents orphaning the new
+            # refresh token if the profile fetch below fails.
+            if "_account_ref" in credentials:
+                self._store.set(self.source, credentials["_account_ref"], credentials)
 
         # --- Fetch stable WHOOP user_id as account_ref -----------------------
         try:
@@ -402,6 +407,9 @@ class WhoopConnector(BaseConnector):
 
         account_ref = str(whoop_user_id)
 
+        # Embed account_ref so future re-connects can persist a refreshed token
+        # bundle before the profile fetch (see token refresh block above).
+        credentials["_account_ref"] = account_ref
         # Persist (potentially refreshed) credentials keyed by stable account_ref
         # NEVER log the credential dict contents
         self._store.set(self.source, account_ref, credentials)

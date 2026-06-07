@@ -15,9 +15,35 @@ from typing import Any
 import pytest
 
 from openvitals.schema.records import Record
+from openvitals.storage.credentials import CredentialStore
 
 
 UTC = timezone.utc
+
+
+class FakeStore(CredentialStore):
+    """In-memory CredentialStore for tests — no encryption, no disk I/O."""
+
+    def __init__(self, data: dict | None = None) -> None:
+        self._data: dict[tuple[str, str], dict] = {}
+        if data:
+            for k, v in data.items():
+                source, ref = k.split(":", 1)
+                self._data[(source, ref)] = v
+
+    def get(self, source: str, account_ref: str) -> dict | None:
+        return self._data.get((source, account_ref))
+
+    def set(self, source: str, account_ref: str, credentials: dict) -> None:
+        self._data[(source, account_ref)] = credentials
+
+    def delete(self, source: str, account_ref: str) -> None:
+        self._data.pop((source, account_ref), None)
+
+
+@pytest.fixture
+def fake_store() -> FakeStore:
+    return FakeStore()
 
 
 @pytest.fixture

@@ -87,16 +87,55 @@ class OpenVitals:
             requires explicit opt-in per connector-contract.md.  Do not enable
             on shared systems.
         """
+        if credential_store is None:
+            raise ValueError(
+                "with_builtins() requires a credential_store — built-in connectors "
+                "persist auth tokens between calls. Pass an EncryptedFileStore or "
+                "your own CredentialStore implementation.\n\n"
+                "Example:\n"
+                "    from openvitals.storage import EncryptedFileStore\n"
+                "    ov = OpenVitals.with_builtins(credential_store=EncryptedFileStore())"
+            )
+        missing_env: list[str] = []
+        strava_client_id = os.environ.get("STRAVA_CLIENT_ID", "")
+        strava_client_secret = os.environ.get("STRAVA_CLIENT_SECRET", "")
+        if not strava_client_id:
+            missing_env.append("STRAVA_CLIENT_ID")
+        if not strava_client_secret:
+            missing_env.append("STRAVA_CLIENT_SECRET")
+        withings_client_id = os.environ.get("WITHINGS_CLIENT_ID", "")
+        withings_client_secret = os.environ.get("WITHINGS_CLIENT_SECRET", "")
+        if not withings_client_id:
+            missing_env.append("WITHINGS_CLIENT_ID")
+        if not withings_client_secret:
+            missing_env.append("WITHINGS_CLIENT_SECRET")
+        if missing_env:
+            raise ValueError(
+                f"with_builtins() requires these environment variables to be set: "
+                f"{', '.join(missing_env)}\n\n"
+                "Strava and Withings connectors need OAuth app credentials. "
+                "Create apps at:\n"
+                "  Strava:   https://www.strava.com/settings/api\n"
+                "  Withings: https://developer.withings.com/\n\n"
+                "Then set the env vars before calling with_builtins()."
+            )
+
         instance = cls(credential_store=credential_store)
         instance.register(WhoopConnector(credential_store=credential_store))
         instance.register(
             StravaConnector(
-                client_id=os.environ.get("STRAVA_CLIENT_ID", ""),
-                client_secret=os.environ.get("STRAVA_CLIENT_SECRET", ""),
+                client_id=strava_client_id,
+                client_secret=strava_client_secret,
                 credential_store=credential_store,
             )
         )
-        instance.register(WithingsConnector(credential_store=credential_store))
+        instance.register(
+            WithingsConnector(
+                client_id=withings_client_id,
+                client_secret=withings_client_secret,
+                credential_store=credential_store,
+            )
+        )
         instance.register(HevyConnector(credential_store=credential_store))
         if enable_unofficial:
             instance.register(

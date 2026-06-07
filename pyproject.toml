@@ -7,7 +7,7 @@ name = "openvitals"
 version = "0.1.0"
 description = "Open-source connector layer for consumer health data"
 requires-python = ">=3.12"
-license = { text = "AGPL-3.0" }
+license = { file = "LICENSE" }
 dependencies = [
     # Core schema + validation
     "pydantic>=2.7,<3",

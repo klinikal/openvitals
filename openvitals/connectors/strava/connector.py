@@ -465,7 +465,7 @@ class StravaConnector(BaseConnector):
                 if collected:
                     raise PartialFetchError(
                         f"Network error on page {page}: {exc}",
-                        records_fetched=len(collected),
+                        records=list(collected),
                         cause=exc,
                     ) from exc
                 raise ProviderUnavailable(
@@ -485,7 +485,7 @@ class StravaConnector(BaseConnector):
                 if collected:
                     raise PartialFetchError(
                         f"Rate limited on page {page}.",
-                        records_fetched=len(collected),
+                        records=list(collected),
                         cause=RateLimited("Strava rate limit hit.", retry_after=retry_after),
                     )
                 raise RateLimited(
@@ -499,7 +499,7 @@ class StravaConnector(BaseConnector):
                 if collected:
                     raise PartialFetchError(
                         f"Provider error on page {page}.",
-                        records_fetched=len(collected),
+                        records=list(collected),
                         cause=exc_5xx,
                     )
                 raise exc_5xx
@@ -509,7 +509,7 @@ class StravaConnector(BaseConnector):
             except httpx.HTTPStatusError as exc:
                 pfail = PartialFetchError(
                     f"HTTP error on page {page}: {exc}",
-                    records_fetched=len(collected),
+                    records=list(collected),
                     cause=exc,
                 ) if collected else None
                 if pfail:

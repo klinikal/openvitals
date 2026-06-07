@@ -236,17 +236,23 @@ class WithingsConnector(BaseConnector):
                 f"Withings credentials missing keys: {missing}"
             )
 
-        # Validate scopes if stored
+        # Validate scopes — fail loud if absent or insufficient
         granted_raw = credentials.get("scope_granted", "")
-        if granted_raw:
-            granted = set(granted_raw.replace(",", " ").split())
-            missing_scopes = REQUIRED_SCOPES - granted
-            if missing_scopes:
-                raise MissingScope(
-                    f"Withings missing required scopes: {missing_scopes}",
-                    required_scope=",".join(missing_scopes),
-                    granted_scopes=granted,
-                )
+        if not granted_raw:
+            raise MissingScope(
+                "Withings credentials are missing 'scope_granted'. "
+                "Re-authenticate to capture granted scopes.",
+                required_scope=",".join(REQUIRED_SCOPES),
+                granted_scopes=set(),
+            )
+        granted = set(granted_raw.replace(",", " ").split())
+        missing_scopes = REQUIRED_SCOPES - granted
+        if missing_scopes:
+            raise MissingScope(
+                f"Withings missing required scopes: {missing_scopes}",
+                required_scope=",".join(missing_scopes),
+                granted_scopes=granted,
+            )
 
         withings_user_id = str(credentials["withings_user_id"])
 

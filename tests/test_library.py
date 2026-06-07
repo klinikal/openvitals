@@ -20,6 +20,7 @@ from openvitals.connectors.base import Account, BaseConnector
 from openvitals.schema.records import Record, SleepSessionCommon
 from openvitals.schema.domains import RecordType
 from openvitals.surfaces.library import OpenVitals
+from tests.conftest import FakeStore
 
 UTC = timezone.utc
 
@@ -155,22 +156,40 @@ class TestOpenVitalsLibrary:
 # ---------------------------------------------------------------------------
 
 
+_FAKE_OAUTH_ENV = {
+    "STRAVA_CLIENT_ID": "test_strava_id",
+    "STRAVA_CLIENT_SECRET": "test_strava_secret",
+    "WITHINGS_CLIENT_ID": "test_withings_id",
+    "WITHINGS_CLIENT_SECRET": "test_withings_secret",
+}
+
+
 class TestBuiltins:
     """with_builtins() registers official connectors by default; Cronometer needs enable_unofficial=True."""
 
+    @pytest.fixture(autouse=True)
+    def oauth_env(self, monkeypatch):
+        for k, v in _FAKE_OAUTH_ENV.items():
+            monkeypatch.setenv(k, v)
+
     def test_with_builtins_registers_four_official(self):
         """Default with_builtins() excludes Cronometer (unofficial API requires opt-in)."""
-        ov = OpenVitals.with_builtins()
+        ov = OpenVitals.with_builtins(credential_store=FakeStore())
         assert set(ov.sources) == {"whoop", "strava", "withings", "hevy"}
 
     def test_with_builtins_with_unofficial_registers_all_five(self):
         """enable_unofficial=True adds Cronometer to the registry."""
-        ov = OpenVitals.with_builtins(enable_unofficial=True)
+        ov = OpenVitals.with_builtins(credential_store=FakeStore(), enable_unofficial=True)
         assert set(ov.sources) == {"whoop", "strava", "withings", "hevy", "cronometer"}
 
     def test_builtins_resolvable_and_unknown_raises(self):
-        ov = OpenVitals.with_builtins(enable_unofficial=True)
+        ov = OpenVitals.with_builtins(credential_store=FakeStore(), enable_unofficial=True)
         for source in ("whoop", "strava", "withings", "hevy", "cronometer"):
             assert source in ov.available()
         with pytest.raises(KeyError):
             ov.connect("garmin", credentials={})
+
+    def test_with_builtins_requires_credential_store(self):
+        """with_builtins() raises ValueError when no credential_store is given."""
+        with pytest.raises(ValueError, match="credential_store"):
+            OpenVitals.with_builtins()
