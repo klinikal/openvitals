@@ -1,10 +1,12 @@
 # Secrets & credentials — never commit
+# (narrow patterns — must NOT match source files like connectors/credentials.py)
 .env
 .env.*
 *.key
 *.pem
-credentials*
-secrets*
+*.credentials
+secrets.json
+secrets.yaml
 .openvitals/        # default local credential store
 
 # Python
