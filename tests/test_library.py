@@ -148,3 +148,29 @@ class TestOpenVitalsLibrary:
         ov.connect("strava", credentials={"tok": "s"})
         list(ov.fetch("whoop"))
         list(ov.fetch("strava"))
+
+
+# ---------------------------------------------------------------------------
+# Built-in connector registration (integration)
+# ---------------------------------------------------------------------------
+
+
+class TestBuiltins:
+    """with_builtins() must register exactly the five v0.1 connectors."""
+
+    def test_with_builtins_registers_all_five(self):
+        ov = OpenVitals.with_builtins()
+        assert set(ov.sources) == {
+            "whoop",
+            "strava",
+            "withings",
+            "hevy",
+            "cronometer",
+        }
+
+    def test_builtins_resolvable_and_unknown_raises(self):
+        ov = OpenVitals.with_builtins()
+        for source in ("whoop", "strava", "withings", "hevy", "cronometer"):
+            assert source in ov.available()
+        with pytest.raises(KeyError):
+            ov.connect("garmin", credentials={})
