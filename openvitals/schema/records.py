@@ -100,7 +100,7 @@ class Exercise(BaseModel):
     model_config = {"extra": "forbid"}
 
     exercise_order: int = Field(..., description="Position in the workout. REQUIRED — never lose ordering.")
-    exercise_name: str
+    exercise_name: str | None = None
     exercise_ref_id: str | None = None
     primary_muscle: str | None = None
     superset_id: str | None = None

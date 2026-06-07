@@ -69,7 +69,7 @@ class TestEncryptedFileStore:
         assert store.get("whoop", "acct_002") == {"tok": "b"}
         assert store.get("strava", "acct_001") == {"tok": "c"}
 
-    def test_file_permissions_0600(self, store, tmp_path):
+    def test_file_permissions_0600(self, tmp_path):
         """The credential file must be written with 0600 permissions."""
         store_path = tmp_path / "credentials.json"
         store2 = EncryptedFileStore(path=store_path, fernet_key=Fernet.generate_key())
