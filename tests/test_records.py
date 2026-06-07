@@ -463,3 +463,47 @@ class TestRecordTypeMapping:
         all_values = {rt.value for rt in RecordType}
         assert "lab_result" not in all_values
         assert "genetic_variant" not in all_values
+
+
+# ---------------------------------------------------------------------------
+# record_type / common type cross-validation
+# ---------------------------------------------------------------------------
+
+
+class TestRecordTypeCommonMismatch:
+    def test_mismatch_raises_validation_error(self):
+        """A mismatched record_type/common pair must be rejected."""
+        with pytest.raises(ValidationError, match="requires common type"):
+            make_envelope(
+                RecordType.SLEEP_SESSION,
+                WorkoutCommon(),  # wrong common for SLEEP_SESSION
+                "sleep",
+            )
+
+    def test_all_correct_pairs_construct_fine(self):
+        """Every (record_type, common) pair in RECORD_TYPE_TO_COMMON must validate."""
+        minimal_instances = {
+            RecordType.SLEEP_SESSION: SleepSessionCommon(),
+            RecordType.WORKOUT: WorkoutCommon(),
+            RecordType.DAILY_RECOVERY: DailyRecoveryCommon(),
+            RecordType.BODY_MEASUREMENT: BodyMeasurementCommon(),
+            RecordType.SEGMENTAL_COMPOSITION: SegmentalCompositionCommon(),
+            RecordType.CARDIOVASCULAR_MARKER: CardiovascularMarkerCommon(),
+            RecordType.FOOD_ENTRY: FoodEntryCommon(),
+            RecordType.DAILY_SUMMARY: DailySummaryCommon(),
+            RecordType.FOOD_DEFINITION: FoodDefinitionCommon(),
+        }
+        domain_for = {
+            RecordType.SLEEP_SESSION: "sleep",
+            RecordType.WORKOUT: "activity",
+            RecordType.DAILY_RECOVERY: "recovery",
+            RecordType.BODY_MEASUREMENT: "body",
+            RecordType.SEGMENTAL_COMPOSITION: "body",
+            RecordType.CARDIOVASCULAR_MARKER: "body",
+            RecordType.FOOD_ENTRY: "nutrition",
+            RecordType.DAILY_SUMMARY: "nutrition",
+            RecordType.FOOD_DEFINITION: "nutrition",
+        }
+        for record_type, common in minimal_instances.items():
+            r = make_envelope(record_type, common, domain_for[record_type])
+            assert r.record_type == record_type

@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from openvitals.schema.domains import (
     ActivityType,
@@ -387,3 +387,13 @@ class Record(BaseModel):
             "Must be documented per connector. Not a junk drawer."
         ),
     )
+
+    @model_validator(mode="after")
+    def _validate_common_type(self) -> "Record":
+        expected = RECORD_TYPE_TO_COMMON.get(self.record_type)
+        if expected is not None and not isinstance(self.common, expected):
+            raise ValueError(
+                f"record_type '{self.record_type.value}' requires common type "
+                f"'{expected.__name__}', got '{type(self.common).__name__}'"
+            )
+        return self
