@@ -8,8 +8,12 @@ Usage::
     from openvitals import OpenVitals
     from openvitals.storage import EncryptedFileStore
 
+    # All built-in connectors pre-registered:
+    ov = OpenVitals.with_builtins(credential_store=EncryptedFileStore())
+
+    # Or register a single connector manually:
     ov = OpenVitals(credential_store=EncryptedFileStore())
-    ov.register(WHOOPConnector())
+    ov.register(WhoopConnector())
 
     account = ov.connect("whoop", credentials={"access_token": "...", ...})
     for record in ov.fetch("whoop", since=datetime(2026, 1, 1, tzinfo=timezone.utc)):
@@ -18,12 +22,26 @@ Usage::
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import Any, Iterable
 
 from openvitals.connectors.base import Account, BaseConnector
+from openvitals.connectors.cronometer.connector import CronometerConnector
+from openvitals.connectors.hevy.connector import HevyConnector
+from openvitals.connectors.strava.connector import StravaConnector
+from openvitals.connectors.whoop.connector import WhoopConnector
+from openvitals.connectors.withings.connector import WithingsConnector
 from openvitals.schema.records import Record
 from openvitals.storage.credentials import CredentialStore
+
+BUILTIN_CONNECTORS: list[type[BaseConnector]] = [
+    WhoopConnector,
+    StravaConnector,
+    WithingsConnector,
+    HevyConnector,
+    CronometerConnector,
+]
 
 
 class OpenVitals:
@@ -46,6 +64,33 @@ class OpenVitals:
         self._connectors: dict[str, BaseConnector] = {}
         self._accounts: dict[str, Account] = {}  # source → last connected Account
         self._credential_store = credential_store
+
+    @classmethod
+    def with_builtins(cls, credential_store: CredentialStore | None = None) -> "OpenVitals":
+        """
+        Return an ``OpenVitals`` instance with all built-in connectors
+        pre-registered (WHOOP, Strava, Withings, Hevy, Cronometer).
+
+        Parameters
+        ----------
+        credential_store:
+            Passed through to ``__init__``.  See :meth:`__init__` for details.
+        """
+        instance = cls(credential_store=credential_store)
+        instance.register(WhoopConnector(credential_store=credential_store))
+        instance.register(
+            StravaConnector(
+                client_id=os.environ.get("STRAVA_CLIENT_ID", ""),
+                client_secret=os.environ.get("STRAVA_CLIENT_SECRET", ""),
+                credential_store=credential_store,
+            )
+        )
+        instance.register(WithingsConnector(credential_store=credential_store))
+        instance.register(HevyConnector(credential_store=credential_store))
+        instance.register(
+            CronometerConnector(credential_store=credential_store, enabled=True)
+        )
+        return instance
 
     def register(self, connector: BaseConnector) -> None:
         """
@@ -102,6 +147,10 @@ class OpenVitals:
     def sources(self) -> list[str]:
         """Return the slugs of all registered connectors."""
         return list(self._connectors.keys())
+
+    def available(self) -> set[str]:
+        """Return the set of slugs for all registered connectors."""
+        return set(self._connectors.keys())
 
     def _get_connector(self, source: str) -> BaseConnector:
         connector = self._connectors.get(source)
