@@ -224,6 +224,12 @@ def _workout_to_record(
     if workout.get("description"):
         source_extras["description"] = workout["description"]
 
+    # local_date: Hevy workouts carry no explicit local-date field.
+    # Use the UTC date of occurred_at as a proxy — this is the same
+    # assumption HealthOS uses. Consumers in non-UTC timezones should
+    # apply the offset themselves using the occurred_at timestamp.
+    local_date = occurred_at.date()
+
     return Record(
         source="hevy",
         domain=Domain.ACTIVITY.value,
@@ -233,6 +239,7 @@ def _workout_to_record(
         occurred_at=occurred_at,
         occurred_end=occurred_end,
         ingested_at=ingested_at,
+        local_date=local_date,
         common=common,
         raw=workout,
         source_extras=source_extras or None,

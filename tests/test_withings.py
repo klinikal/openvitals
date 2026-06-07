@@ -256,10 +256,17 @@ class TestBodyMeasurementDecode:
         # fixture: type 170, value=7, unit=0 → int(7.0) = 7
         assert self.bm.common.visceral_fat_index == 7
 
-    def test_hydration_in_source_extras_not_common(self):
-        # body_water_pct in common should be None (no % available from Withings directly)
-        assert self.bm.common.body_water_pct is None
-        # hydration_kg should land in source_extras
+    def test_body_water_pct_derived_from_weight_and_hydration_kg(self):
+        """body_water_pct = hydration_kg / weight_kg * 100 (same-event decode).
+
+        Fixture grp 111001 has both weight (type 1, 82.0 kg) and hydration
+        (type 77, 48.20 kg) so body_water_pct can be computed inline.
+        hydration_kg is kept in source_extras for access to the absolute value.
+        """
+        # body_water_pct = 48.20 / 82.0 * 100 ≈ 58.78 %
+        assert self.bm.common.body_water_pct is not None
+        assert self.bm.common.body_water_pct == pytest.approx(48.20 / 82.0 * 100, rel=1e-4)
+        # hydration_kg must still be in source_extras (absolute value preserved)
         assert self.bm.source_extras is not None
         assert "hydration_kg" in self.bm.source_extras
         # fixture: type 77, value=4820, unit=-2 → 48.20 kg

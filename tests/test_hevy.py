@@ -334,6 +334,18 @@ class TestWorkoutToRecord:
         assert record.source_extras is not None
         assert record.source_extras.get("description") == "Chest and shoulders focus"
 
+    def test_local_date_is_utc_date_of_start_time(self):
+        """Hevy workouts have no local-date field; local_date = UTC date of occurred_at.
+
+        ASSUMPTION: Hevy does not expose a timezone or local-date field in the
+        workout payload. We use the UTC date of start_time as a proxy.
+        Consumers in non-UTC timezones should apply their own offset.
+        """
+        raw = load_fixture("workout_event.json")["workout"]
+        # start_time = 2026-06-06T09:00:00Z → local_date = 2026-06-06 (UTC)
+        record = _workout_to_record(raw, ACCOUNT_REF, INGESTED_AT)
+        assert record.local_date == date(2026, 6, 6)
+
     def test_missing_start_time_raises(self):
         raw = load_fixture("workout_event.json")["workout"]
         raw_copy = {**raw, "start_time": None}

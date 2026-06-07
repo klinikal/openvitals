@@ -478,6 +478,19 @@ class TestActivityMapping:
         for r in self.records:
             assert r.schema_version == "0.1"
 
+    def test_local_date_from_start_date_local(self):
+        """local_date must use start_date_local (not start_date/UTC) for correct day attribution.
+
+        The first fixture activity has start_date='2026-06-05T06:30:00Z' (UTC)
+        and start_date_local='2026-06-05T07:30:00Z' (Europe/London BST = UTC+1).
+        Both are on the same day here; the key invariant is that start_date_local[:10]
+        is used, not the UTC date.
+        """
+        from datetime import date as date_type
+        run = self.records[0]
+        # Fixture: start_date_local = "2026-06-05T07:30:00Z" → local_date = 2026-06-05
+        assert run.local_date == date_type(2026, 6, 5)
+
 
 # ---------------------------------------------------------------------------
 # raw byte-faithfulness

@@ -390,8 +390,46 @@ class TestSleepMapping:
         connector, account = self._make_connector_and_account()
         record = connector._map_sleep(raw, account.account_ref, datetime.now(UTC))
 
-        # start = 2026-06-06T22:45:00Z → local_date = 2026-06-06
+        # start = 2026-06-06T22:45:00Z, timezone_offset = "+01:00"
+        # local time = 23:45 on 2026-06-06 → local_date = 2026-06-06
         assert record.local_date == date(2026, 6, 6)
+
+    def test_sleep_local_date_cross_midnight(self):
+        """WHOOP timezone_offset must be applied before taking the local date.
+
+        A sleep starting at 23:30 UTC with +01:00 offset is 00:30 local time on
+        the NEXT calendar day — not the UTC date. This is the cross-midnight edge case.
+        """
+        raw = {
+            "id": "sleep-cross-midnight-001",
+            "start": "2026-06-06T23:30:00Z",  # UTC 23:30 on June 6
+            "end": "2026-06-07T07:00:00Z",
+            "nap": False,
+            "timezone_offset": "+01:00",       # local time = 00:30 on June 7
+            "score_state": "SCORED",
+            "score": {
+                "sleep_performance_percentage": 75,
+                "sleep_efficiency_percentage": 82.0,
+                "respiratory_rate": 14.8,
+                "hrv_rmssd_milli": 55.0,
+                "stage_summary": {
+                    "total_in_bed_time_milli": 27000000,
+                    "total_awake_time_milli": 1800000,
+                    "total_light_sleep_time_milli": 10800000,
+                    "total_slow_wave_sleep_time_milli": 5400000,
+                    "total_rem_sleep_time_milli": 9000000,
+                    "disturbance_count": 2,
+                },
+            },
+        }
+        connector, account = self._make_connector_and_account()
+        record = connector._map_sleep(raw, account.account_ref, datetime.now(UTC))
+
+        # 23:30 UTC + 01:00 = 00:30 local on 2026-06-07 → local_date = 2026-06-07
+        assert record.local_date == date(2026, 6, 7), (
+            f"Expected local_date=2026-06-07 for 23:30Z+01:00 cross-midnight session, "
+            f"got {record.local_date}"
+        )
 
     def test_sleep_raw_is_verbatim_fixture(self):
         """raw must equal the provider payload exactly — no decoding, renaming, or dropping."""
@@ -610,7 +648,40 @@ class TestWorkoutMapping:
         connector, account = self._make_connector_and_account()
         record = connector._map_workout(raw, account.account_ref, datetime.now(UTC))
 
+        # start = 2026-06-06T07:00:00Z, timezone_offset = "+01:00"
+        # local time = 08:00 on 2026-06-06 → local_date = 2026-06-06
         assert record.local_date == date(2026, 6, 6)
+
+    def test_workout_local_date_cross_midnight(self):
+        """WHOOP timezone_offset must be applied to workouts too.
+
+        A workout starting at 23:30 UTC with +01:00 offset is 00:30 local time on
+        the NEXT calendar day.
+        """
+        raw = {
+            "id": "workout-cross-midnight-001",
+            "start": "2026-06-06T23:30:00Z",   # UTC 23:30 on June 6
+            "end": "2026-06-07T00:30:00Z",
+            "timezone_offset": "+01:00",          # local time = 00:30 on June 7
+            "sport_name": "sauna",
+            "sport_id": 63,
+            "score_state": "SCORED",
+            "score": {
+                "strain": 2.0,
+                "average_heart_rate": 75,
+                "max_heart_rate": 90,
+                "kilojoule": 100.0,
+                "percent_recorded": 100.0,
+            },
+        }
+        connector, account = self._make_connector_and_account()
+        record = connector._map_workout(raw, account.account_ref, datetime.now(UTC))
+
+        # 23:30 UTC + 01:00 = 00:30 local on 2026-06-07 → local_date = 2026-06-07
+        assert record.local_date == date(2026, 6, 7), (
+            f"Expected local_date=2026-06-07 for 23:30Z+01:00 cross-midnight workout, "
+            f"got {record.local_date}"
+        )
 
     def test_workout_raw_is_verbatim_fixture(self):
         """raw must equal the provider payload exactly."""

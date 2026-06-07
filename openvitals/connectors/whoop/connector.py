@@ -54,7 +54,7 @@ All list endpoints use cursor pagination: params include ``limit=25`` and
 from __future__ import annotations
 
 import time
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable
 
 import httpx
@@ -182,6 +182,31 @@ def _parse_utc(ts: str | None) -> datetime | None:
         return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(timezone.utc)
     except (ValueError, TypeError) as exc:
         raise ProviderPayloadError(f"Cannot parse WHOOP timestamp {ts!r}: {exc}") from exc
+
+
+def _local_date_from_utc(utc_dt: datetime | None, tz_offset: str | None) -> date | None:
+    """Return the local date by applying a WHOOP timezone_offset string to a UTC datetime.
+
+    WHOOP provides ``timezone_offset`` as e.g. "+01:00" or "-05:00".
+    Applying it before taking the date ensures cross-midnight sessions attribute
+    to the correct local day (e.g. 23:30 UTC with +01:00 → 00:30 local → next local day).
+
+    Falls back to the UTC date if the offset cannot be parsed or utc_dt is None.
+    """
+    if utc_dt is None:
+        return None
+    if tz_offset:
+        try:
+            # Parse "+HH:MM" or "-HH:MM"
+            sign = 1 if tz_offset[0] != "-" else -1
+            parts = tz_offset.lstrip("+-").split(":")
+            hours = int(parts[0])
+            minutes = int(parts[1]) if len(parts) > 1 else 0
+            offset = timedelta(hours=hours, minutes=minutes) * sign
+            return (utc_dt + offset).date()
+        except (ValueError, IndexError):
+            pass
+    return utc_dt.date()
 
 
 def _millis_to_minutes(ms: float | int | None) -> float | None:
@@ -673,10 +698,10 @@ class WhoopConnector(BaseConnector):
             stage_deep_minutes=int(_millis_to_minutes(stage_summary.get("total_slow_wave_sleep_time_milli")) or 0) or None,
             stage_light_minutes=int(_millis_to_minutes(stage_summary.get("total_light_sleep_time_milli")) or 0) or None,
             stage_awake_minutes=int(_millis_to_minutes(awake_ms) or 0) or None,
-            avg_heart_rate_bpm=None,  # WHOOP sleep score does not expose avg HR
+            avg_heart_rate_bpm=None,  # not in WHOOP v2 SleepScore (verified against whoop-api-reference.md)
             avg_hrv_ms=float(hrv_rmssd_milli) if hrv_rmssd_milli is not None else None,
             respiratory_rate_bpm=score.get("respiratory_rate"),
-            avg_spo2_pct=None,  # not in WHOOP v2 sleep score
+            avg_spo2_pct=None,  # not in WHOOP v2 SleepScore (verified against whoop-api-reference.md; spo2 is RecoveryScore only)
             provider_sleep_score=(
                 int(score["sleep_performance_percentage"])
                 if score.get("sleep_performance_percentage") is not None
@@ -685,18 +710,10 @@ class WhoopConnector(BaseConnector):
             score_state=score_state,
         )
 
-        # local_date: WHOOP sleep start date in the provider's timezone
-        # Use start[:10] as local date (WHOOP timestamps are UTC; the timezone_offset
-        # field on the record can be used by consumers to reconstruct local time)
-        # ASSUMPTION: local_date = start UTC date is a reasonable approximation.
-        # HealthOS uses cycle.start[:10] for recovery; for sleep we use sleep.start[:10].
-        local_date_str = raw.get("start", "")[:10]
-        local_date: date | None = None
-        if local_date_str:
-            try:
-                local_date = date.fromisoformat(local_date_str)
-            except ValueError:
-                local_date = None
+        # local_date: apply timezone_offset to the UTC start so cross-midnight
+        # sessions attribute to the correct local day (e.g. 23:30Z + 01:00 → 00:30
+        # local → the *next* local day, not the UTC day).
+        local_date = _local_date_from_utc(start_ts, raw.get("timezone_offset"))
 
         return Record(
             source=self.source,
@@ -866,13 +883,9 @@ class WhoopConnector(BaseConnector):
             score_state=score_state,
         )
 
-        local_date_str = raw.get("start", "")[:10]
-        local_date: date | None = None
-        if local_date_str:
-            try:
-                local_date = date.fromisoformat(local_date_str)
-            except ValueError:
-                local_date = None
+        # local_date: apply timezone_offset to the UTC start so cross-midnight
+        # sessions attribute to the correct local day (same logic as sleep).
+        local_date = _local_date_from_utc(start_ts, raw.get("timezone_offset"))
 
         return Record(
             source=self.source,

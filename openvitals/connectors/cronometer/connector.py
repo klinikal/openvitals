@@ -187,22 +187,31 @@ def _build_micronutrients(
     return Micronutrients(**kwargs)
 
 
-def _build_micronutrients_from_summary(
-    consumed: dict,
-    nutrient_dict: dict[int, dict],
-) -> Micronutrients:
-    """Build Micronutrients from the summary ``consumed`` block.
+def _sum_micronutrients(micros_list: list[Micronutrients]) -> Micronutrients:
+    """Sum a list of Micronutrients objects field-by-field.
 
-    The summary consumed dict may include nutrient totals keyed by nutrient name
-    strings (not IDs). Cronometer doesn't consistently expose micro totals in the
-    summary; the full nutrient list lives in get_food per-food. For daily_summary
-    we pass consumed through a name-based fallback — return empty Micronutrients
-    for safety (all None) since the summary block is macro-focused.
+    None stays None only if every entry for that field is None.
+    If at least one entry has a non-None value, the sum is taken across
+    all non-None values (missing entries contribute 0 to the sum).
 
-    NOTE: If Cronometer exposes micronutrient totals in the summary in future,
-    expand this function. For now, all micro fields on daily_summary are None.
+    Used to accumulate per-entry micronutrients into a daily_summary total.
     """
-    return Micronutrients()
+    if not micros_list:
+        return Micronutrients()
+
+    # Collect all canonical field names from the schema
+    fields = list(Micronutrients.model_fields.keys())
+    totals: dict[str, float | None] = {}
+
+    for field in fields:
+        values = [getattr(m, field) for m in micros_list]
+        non_none = [v for v in values if v is not None]
+        if non_none:
+            totals[field] = sum(non_none)
+        else:
+            totals[field] = None
+
+    return Micronutrients(**{k: v for k, v in totals.items() if v is not None})
 
 
 def _map_source(source_str: str | None) -> str | None:
@@ -528,6 +537,9 @@ class CronometerConnector(BaseConnector):
                     food_cache[food_id] = food_data
                     time.sleep(0.2)  # conservative throttle
 
+            # Accumulate per-entry micronutrients so daily_summary can sum them
+            day_entry_micros: list[Micronutrients] = []
+
             # Emit food_entry records
             for entry in serving_entries:
                 food_id = entry.get("foodId")
@@ -610,6 +622,10 @@ class CronometerConnector(BaseConnector):
                     micronutrients=entry_micros,
                 )
 
+                # Accumulate micronutrients for daily_summary (fix #2)
+                if entry_micros is not None:
+                    day_entry_micros.append(entry_micros)
+
                 yield Record(
                     source=self.source,
                     domain=Domain.NUTRITION.value,
@@ -654,9 +670,6 @@ class CronometerConnector(BaseConnector):
                         micronutrients=def_micros,
                     )
 
-                    raw_food = dict(food_data)
-                    raw_food["_normalized_nutrients"] = full_nutrients
-
                     yield Record(
                         source=self.source,
                         domain=Domain.NUTRITION.value,
@@ -668,13 +681,15 @@ class CronometerConnector(BaseConnector):
                         timezone=tz,
                         local_date=current,
                         common=def_common,
-                        raw=raw_food,
+                        raw=food_data,  # verbatim — never mutated (spec: raw is byte-faithful)
+                        source_extras={"normalized_nutrients": full_nutrients},
                     )
 
             # Emit daily_summary
             summary_id = f"{account_ref}:{current.isoformat()}:daily_summary"
 
-            summary_micros = _build_micronutrients_from_summary(consumed, session.nutrient_dict)
+            # Sum micronutrients across all food entries for this day (fix #2)
+            summary_micros = _sum_micronutrients(day_entry_micros)
 
             summary_common = DailySummaryCommon(
                 energy_kcal=consumed.get("total"),
@@ -759,8 +774,9 @@ def _build_full_nutrient_list(
     """Build a human-readable full nutrient list by joining with nutrient_dict.
 
     Returns [{id, name, unit, amount, category}] for every nutrient in the
-    food's nutrient list. Used for the ``raw._normalized_nutrients`` field.
-    This is internal plumbing and is never emitted as a standalone record.
+    food's nutrient list. Stored in ``source_extras["normalized_nutrients"]``
+    on food_definition records — useful provider-headline data but not in raw
+    (raw is verbatim per spec) nor in common (not a canonical micronutrient field).
     """
     result = []
     for n in nutrients:

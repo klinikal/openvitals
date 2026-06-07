@@ -79,7 +79,7 @@ Partial-failure:
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Iterable
 
 import httpx
@@ -669,6 +669,19 @@ class StravaConnector(BaseConnector):
             # Strava is cardio — no strength fields (total_volume_kg, set_count, exercises)
         )
 
+        # local_date: Strava provides start_date_local (local-timezone wall-clock time).
+        # Prefer that over the UTC start_date so cross-midnight sessions attribute
+        # to the correct local day (e.g. 23:00 local doesn't become the next UTC date).
+        local_date: date | None = None
+        start_date_local = a.get("start_date_local")
+        if start_date_local:
+            try:
+                local_date = date.fromisoformat(start_date_local[:10])
+            except (ValueError, TypeError):
+                local_date = occurred_at.date()  # fallback to UTC date
+        else:
+            local_date = occurred_at.date()
+
         return Record(
             source=self.source,
             domain=Domain.ACTIVITY.value,
@@ -679,6 +692,7 @@ class StravaConnector(BaseConnector):
             occurred_end=occurred_end,
             ingested_at=ingested_at,
             timezone=iana_timezone,
+            local_date=local_date,
             common=common,
             raw=a,  # verbatim, byte-faithful
             source_extras={

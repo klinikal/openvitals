@@ -349,17 +349,26 @@ class TestRawFaithfulness:
         assert len(summaries) == 1
         assert summaries[0].raw == self.diary_fixture
 
-    def test_food_definition_raw_includes_original_payload(self):
-        """food_definition raw must include the original get_food payload keys."""
+    def test_food_definition_raw_is_verbatim_food_payload(self):
+        """food_definition raw must be the verbatim get_food payload — never mutated.
+
+        The normalized nutrient list must be in source_extras["normalized_nutrients"],
+        not injected into raw (spec: raw is byte-faithful).
+        """
         defs = [r for r in self.records if r.record_type == RecordType.FOOD_DEFINITION]
         assert len(defs) == 1
-        raw = defs[0].raw
+        fd = defs[0]
+        raw = fd.raw
         # Original keys from get_food response must be preserved
         assert raw.get("id") == self.food_fixture["id"]
         assert raw.get("name") == self.food_fixture["name"]
         assert raw.get("nutrients") == self.food_fixture["nutrients"]
-        # _normalized_nutrients is appended (internal plumbing, not a replacement)
-        assert "_normalized_nutrients" in raw
+        # raw must NOT contain the injected/renamed _normalized_nutrients key
+        assert "_normalized_nutrients" not in raw
+        # normalized_nutrients must live in source_extras instead
+        assert fd.source_extras is not None
+        assert "normalized_nutrients" in fd.source_extras
+        assert isinstance(fd.source_extras["normalized_nutrients"], list)
 
 
 # ---------------------------------------------------------------------------
@@ -449,6 +458,43 @@ class TestDailySummary:
 
     def test_micronutrients_present(self):
         assert isinstance(self.summary.common.micronutrients, Micronutrients)
+
+    def test_daily_summary_micros_equal_sum_of_entry_micros(self, diary_response, food_response, nutrient_dict):
+        """daily_summary.micronutrients must equal the sum of its food entries' micronutrients.
+
+        The fixture has 2 Serving entries for food_id=100001:
+          - srv-abc001: 100g (full reference serving)
+          - srv-abc002: 50g  (half reference serving)
+        Total should be 1.5× the per-100g nutrient amounts.
+        """
+        from openvitals.connectors.cronometer.connector import _build_micronutrients, _get_reference_grams
+
+        food_entries = [r for r in self.records if r.record_type == RecordType.FOOD_ENTRY]
+        assert len(food_entries) == 2
+
+        # Sum micronutrients across all food entries
+        entry_micros_sum: dict[str, float] = {}
+        all_fields = list(Micronutrients.model_fields.keys())
+        for field in all_fields:
+            values = [
+                getattr(r.common.micronutrients, field)
+                for r in food_entries
+                if r.common.micronutrients is not None
+            ]
+            non_none = [v for v in values if v is not None]
+            if non_none:
+                entry_micros_sum[field] = sum(non_none)
+
+        summary_micros = self.summary.common.micronutrients
+        assert summary_micros is not None
+
+        # Every field that entries have must match summary (within float tolerance)
+        for field, expected in entry_micros_sum.items():
+            actual = getattr(summary_micros, field)
+            assert actual is not None, f"daily_summary.{field} is None but entries sum to {expected}"
+            assert actual == pytest.approx(expected, rel=1e-5), (
+                f"daily_summary.{field} = {actual}, expected sum from entries = {expected}"
+            )
 
 
 # ---------------------------------------------------------------------------

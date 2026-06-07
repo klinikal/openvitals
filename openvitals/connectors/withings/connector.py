@@ -521,8 +521,13 @@ class WithingsConnector(BaseConnector):
 
         source_extras: dict[str, Any] = {}
         if hydration_kg is not None:
-            # body_water_pct cannot be computed without weight %; store raw kg
+            # hydration_kg is always kept in source_extras (absolute kg value)
             source_extras["hydration_kg"] = hydration_kg
+            # body_water_pct: computable when weight is in the same measure group
+            # (same-event decode — not a cross-source computation).
+            weight_kg = common_kwargs.get("weight_kg")
+            if weight_kg is not None and weight_kg > 0:
+                common_kwargs["body_water_pct"] = hydration_kg / weight_kg * 100
 
         return Record(
             source=self.source,
