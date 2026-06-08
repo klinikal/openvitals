@@ -9,9 +9,6 @@ Self-hosted Python library that normalizes consumer health and fitness data from
 > **OpenVitals is a library you integrate into your own stack — not a service, platform, or product provided to you.**
 >
 > There is no "OpenVitals" to sign up to, log into, or rely on. It is open-source code that is designed to help you connect your application to health and fitness providers — authentication, data fetching, and normalisation. OpenVitals never stores, persists, or transmits your health data. If you run the code against your own integrations using your own credentials, records are returned directly to you or your application as Python objects. You're responsible for your credentials including storing them locally in an encrypted file on your own machine. All responsibility for storage, security, and engineering is entirely your own.
->
-> **Contributing:** OpenVitals welcomes pull requests to add new connectors. Contributions should follow the same philosophy — BYO-keys, no data retention, no phone-home — and conform to the [connector contract](docs/specs/connector-contract.md).
-
 ---
 
 ## Supported sources
