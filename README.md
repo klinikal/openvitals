@@ -209,4 +209,4 @@ See [`docs/specs/connector-contract.md`](docs/specs/connector-contract.md) for t
 
 ## License
 
-AGPLv3. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
