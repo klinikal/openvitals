@@ -2,7 +2,7 @@
 
 Self-hosted Python library that normalizes consumer health and fitness data from multiple providers into a single `Record` output. Bring your own API keys — no cloud, no phone-home.
 
-**Status:** v0.1 alpha — API may change before v1.0. From v1.0, the `common` layer is strictly add-only.
+**Status:** v0.1 alpha.
 
 ---
 
