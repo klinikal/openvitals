@@ -1,0 +1,23 @@
+{
+  "data": [
+    {
+      "id": "oura-readiness-001",
+      "day": "2026-06-07",
+      "score": 76,
+      "temperature_deviation": 0.12,
+      "temperature_trend_deviation": -0.08,
+      "timestamp": "2026-06-07T01:00:00+00:00",
+      "contributors": {
+        "activity_balance": 78,
+        "body_temperature": 90,
+        "hrv_balance": 72,
+        "previous_day_activity": 82,
+        "previous_night": 68,
+        "recovery_index": 65,
+        "resting_heart_rate": 86,
+        "sleep_balance": 74
+      }
+    }
+  ],
+  "next_token": null
+}

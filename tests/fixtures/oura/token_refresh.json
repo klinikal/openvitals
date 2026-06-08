@@ -1,0 +1,7 @@
+{
+  "access_token": "new_oura_access_token",
+  "refresh_token": "new_oura_refresh_token",
+  "expires_in": 86400,
+  "token_type": "Bearer",
+  "scope": "personal daily sleep workout"
+}

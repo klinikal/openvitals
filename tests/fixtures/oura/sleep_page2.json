@@ -1,0 +1,37 @@
+{
+  "data": [
+    {
+      "id": "oura-sleep-002",
+      "day": "2026-06-07",
+      "bedtime_start": "2026-06-07T23:15:00+00:00",
+      "bedtime_end": "2026-06-08T06:45:00+00:00",
+      "score": 75,
+      "total_sleep_duration": 25200,
+      "time_in_bed": 27000,
+      "efficiency": 93,
+      "latency": 720,
+      "average_heart_rate": 58,
+      "average_hrv": 59.8,
+      "average_breath": 15.2,
+      "deep_sleep_duration": 4500,
+      "light_sleep_duration": 10800,
+      "rem_sleep_duration": 8100,
+      "awake_time": 1800,
+      "readiness": {
+        "score": 72,
+        "temperature_deviation": -0.05,
+        "contributors": {
+          "activity_balance": 75,
+          "body_temperature": 95,
+          "hrv_balance": 70
+        }
+      },
+      "readiness_score_delta": -1,
+      "sleep_score_delta": 4,
+      "type": "long_sleep",
+      "period": 0,
+      "low_battery_alert": false
+    }
+  ],
+  "next_token": null
+}

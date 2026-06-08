@@ -13,7 +13,7 @@ from openvitals import OpenVitals
 from tests.conftest import FakeStore
 
 
-OFFICIAL_SOURCES = {"whoop", "strava", "withings", "hevy"}
+OFFICIAL_SOURCES = {"whoop", "strava", "withings", "hevy", "oura"}
 ALL_SOURCES = OFFICIAL_SOURCES | {"cronometer"}
 
 FAKE_OAUTH_ENV = {

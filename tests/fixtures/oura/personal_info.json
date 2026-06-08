@@ -1,0 +1,8 @@
+{
+  "id": "oura-user-abc123",
+  "age": 34,
+  "weight": 78.5,
+  "height": 180,
+  "biological_sex": "male",
+  "email": "test@redacted.example"
+}

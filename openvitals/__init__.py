@@ -47,6 +47,7 @@ from openvitals.schema.records import (
 )
 from openvitals.connectors.cronometer.connector import CronometerConnector
 from openvitals.connectors.hevy.connector import HevyConnector
+from openvitals.connectors.oura.connector import OuraConnector
 from openvitals.connectors.strava.connector import StravaConnector
 from openvitals.connectors.whoop.connector import WhoopConnector
 from openvitals.connectors.withings.connector import WithingsConnector
@@ -95,5 +96,6 @@ __all__ = [
     "StravaConnector",
     "WithingsConnector",
     "HevyConnector",
+    "OuraConnector",
     "CronometerConnector",
 ]

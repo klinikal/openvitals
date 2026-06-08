@@ -29,6 +29,7 @@ from typing import Any, Iterable
 from openvitals.connectors.base import Account, BaseConnector
 from openvitals.connectors.cronometer.connector import CronometerConnector
 from openvitals.connectors.hevy.connector import HevyConnector
+from openvitals.connectors.oura.connector import OuraConnector
 from openvitals.connectors.strava.connector import StravaConnector
 from openvitals.connectors.whoop.connector import WhoopConnector
 from openvitals.connectors.withings.connector import WithingsConnector
@@ -40,6 +41,7 @@ BUILTIN_CONNECTORS: list[type[BaseConnector]] = [
     StravaConnector,
     WithingsConnector,
     HevyConnector,
+    OuraConnector,
     CronometerConnector,
 ]
 
@@ -137,6 +139,7 @@ class OpenVitals:
             )
         )
         instance.register(HevyConnector(credential_store=credential_store))
+        instance.register(OuraConnector(credential_store=credential_store))
         if enable_unofficial:
             instance.register(
                 CronometerConnector(credential_store=credential_store, enabled=True)

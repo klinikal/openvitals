@@ -1,0 +1,17 @@
+{
+  "data": [
+    {
+      "id": "oura-workout-001",
+      "activity": "running",
+      "calories": 520,
+      "day": "2026-06-07",
+      "distance": 8500.0,
+      "start_datetime": "2026-06-07T07:00:00+00:00",
+      "end_datetime": "2026-06-07T08:05:00+00:00",
+      "intensity": "moderate",
+      "label": null,
+      "source": "confirmed"
+    }
+  ],
+  "next_token": null
+}

@@ -172,19 +172,19 @@ class TestBuiltins:
         for k, v in _FAKE_OAUTH_ENV.items():
             monkeypatch.setenv(k, v)
 
-    def test_with_builtins_registers_four_official(self):
+    def test_with_builtins_registers_five_official(self):
         """Default with_builtins() excludes Cronometer (unofficial API requires opt-in)."""
         ov = OpenVitals.with_builtins(credential_store=FakeStore())
-        assert set(ov.sources) == {"whoop", "strava", "withings", "hevy"}
+        assert set(ov.sources) == {"whoop", "strava", "withings", "hevy", "oura"}
 
-    def test_with_builtins_with_unofficial_registers_all_five(self):
+    def test_with_builtins_with_unofficial_registers_all_six(self):
         """enable_unofficial=True adds Cronometer to the registry."""
         ov = OpenVitals.with_builtins(credential_store=FakeStore(), enable_unofficial=True)
-        assert set(ov.sources) == {"whoop", "strava", "withings", "hevy", "cronometer"}
+        assert set(ov.sources) == {"whoop", "strava", "withings", "hevy", "oura", "cronometer"}
 
     def test_builtins_resolvable_and_unknown_raises(self):
         ov = OpenVitals.with_builtins(credential_store=FakeStore(), enable_unofficial=True)
-        for source in ("whoop", "strava", "withings", "hevy", "cronometer"):
+        for source in ("whoop", "strava", "withings", "hevy", "oura", "cronometer"):
             assert source in ov.available()
         with pytest.raises(KeyError):
             ov.connect("garmin", credentials={})
