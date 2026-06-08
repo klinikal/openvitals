@@ -50,7 +50,9 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 export OPENVITALS_ENCRYPTION_KEY=<key>
 ```
 
-The key must be set in the environment whenever OpenVitals runs. Keep it secret — losing it means re-authenticating all accounts.
+The key must be set in the environment whenever OpenVitals runs. Keep it secret — losing it means re-authenticating all accounts. Back it up.
+
+How you store and protect this key is entirely your responsibility. Common approaches include shell profiles (`.zshrc` / `.bashrc`), gitignored `.env` files, or a dedicated secrets manager (Doppler, AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault, and others). OpenVitals does not prescribe a method — use whatever suits your setup and threat model. Securing your secrets is your call and your risk.
 
 ### 2. Set OAuth app credentials (Strava and Withings only)
 
