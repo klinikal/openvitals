@@ -210,3 +210,15 @@ See [`docs/specs/connector-contract.md`](docs/specs/connector-contract.md) for t
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+---
+
+## Disclaimer
+
+> **EARLY-STAGE SOFTWARE — USE AT YOUR OWN RISK**
+>
+> THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+>
+> This project is in active early development. APIs, data models, and interfaces may change without notice. Any user of this software is solely responsible for the use, access, storage, and maintenance of their own data. The authors are not affiliated with, endorsed by, or officially associated with any of the third-party services or platforms referenced (including but not limited to WHOOP, Strava, Withings, Hevy, and Cronometer). This is unofficial software built against public and unofficial APIs.
+>
+> By downloading or using this software you indemnify and release the creators from and against any liability whatsoever resulting from or in connection with this software.
