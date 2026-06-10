@@ -265,8 +265,8 @@ class StravaConnector(BaseConnector):
         """
         Validate that ``activity:read_all`` is in the granted scopes string.
 
-        Strava returns scopes as a *comma-delimited* string (e.g.
-        ``"read,activity:read_all"``), not space-delimited.
+        Strava uses comma-delimited scopes in the initial auth flow but may return
+        space-delimited scopes in refresh token responses. Split on both to be safe.
         Raises ``MissingScope`` if required scope is absent.
         """
         if not scope_str:
@@ -275,7 +275,8 @@ class StravaConnector(BaseConnector):
                 required_scope=REQUIRED_SCOPE,
                 granted_scopes=set(),
             )
-        granted = {s.strip() for s in scope_str.split(",")}
+        # Normalise: treat commas and spaces as equivalent delimiters.
+        granted = {s.strip() for s in scope_str.replace(",", " ").split()}
         if REQUIRED_SCOPE not in granted:
             raise MissingScope(
                 f"Missing required scope '{REQUIRED_SCOPE}'; granted: {granted}",
@@ -384,9 +385,11 @@ class StravaConnector(BaseConnector):
         expires_at = credentials.get("expires_at", 0)
         if time.time() + REFRESH_BUFFER_SECS >= expires_at:
             credentials = self._refresh_token(credentials)
-            # Persist rotated tokens BEFORE returning — if we crash here, the
-            # old refresh token is already invalidated on Strava's side.
-            self._store.set(self.source, account_ref, credentials)
+        # Always persist after connect — fetch() reads credentials from the store.
+        # Strava rotates refresh tokens on every use; the persist above handles that
+        # case. This unconditional save ensures fetch() works even when no refresh
+        # was needed (token still valid).
+        self._store.set(self.source, account_ref, credentials)
 
         # Validate scopes (after refresh, scope may be updated in new cred)
         self._check_scopes(credentials.get("scope"))

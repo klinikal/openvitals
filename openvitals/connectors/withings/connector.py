@@ -272,6 +272,8 @@ class WithingsConnector(BaseConnector):
 
         if needs_refresh:
             credentials = self._refresh_token(credentials, withings_user_id)
+        # Always persist after connect — fetch() reads credentials from the store.
+        self._store.set(self.source, withings_user_id, credentials)
 
         return Account(
             account_ref=withings_user_id,

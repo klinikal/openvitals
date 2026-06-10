@@ -8,7 +8,7 @@ Self-hosted Python library that normalizes consumer health and fitness data from
 
 > **OpenVitals is a library you integrate into your own stack — not a service, platform, or product provided to you.**
 >
-> There is no "OpenVitals" to sign up to, log into, or rely on. It is open-source code that is designed to help you connect your application to health and fitness providers — authentication, data fetching, and normalisation. OpenVitals never stores, persists, or transmits your health data. If you run the code against your own integrations using your own credentials, records are returned directly to you or your application as Python objects. You're responsible for your credentials including storing them locally in an encrypted file on your own machine. All responsibility for storage, security, and engineering is entirely your own.
+> There is no "OpenVitals" to sign up to, log into, or rely on. It is open-source code that helps you connect your application to health and fitness providers — handling authentication, data fetching, and normalisation. OpenVitals never stores, persists, or transmits your health data. Records are returned directly to your application as Python objects; where you store them, and how you secure them, is entirely your responsibility. All responsibility for storage, security, and engineering is entirely your own.
 ---
 
 ## Supported sources
@@ -25,14 +25,16 @@ Self-hosted Python library that normalizes consumer health and fitness data from
 
 ## Install
 
+OpenVitals is not yet published to PyPI. Install directly from the repository:
+
 ```bash
-pip install openvitals
+pip install git+https://github.com/klinikal/openvitals.git
 ```
 
 Or with [uv](https://docs.astral.sh/uv/):
 
 ```bash
-uv add openvitals
+uv add git+https://github.com/klinikal/openvitals.git
 ```
 
 **Python 3.12+ required.**
@@ -64,7 +66,7 @@ export WITHINGS_CLIENT_ID=<your_withings_client_id>
 export WITHINGS_CLIENT_SECRET=<your_withings_client_secret>
 ```
 
-WHOOP and Hevy do not require app credentials — WHOOP uses OAuth with your own app; Hevy uses an API key you paste directly.
+WHOOP also requires a developer app — create one at [developer.whoop.com](https://developer.whoop.com). Unlike Strava and Withings, the WHOOP `client_id` and `client_secret` are passed in the credential dict when you call `connect()` rather than as environment variables. Hevy uses an API key only (no app registration required).
 
 ### 3. Create a client
 
@@ -86,9 +88,10 @@ Pass credentials from your OAuth callback (or an API key) to `connect()`. The co
 account = ov.connect("whoop", credentials={
     "access_token": "...",
     "refresh_token": "...",
-    "expires_at": 1234567890.0,  # UTC epoch float
-    "scopes": ["read:recovery", "read:cycles", "read:sleep", "read:workout", "read:body"],
-    "client_id": "...",
+    "expires_at": 1234567890.0,       # UTC epoch float
+    "scopes": ["read:recovery", "read:cycles", "read:sleep",
+               "read:workout", "read:profile", "offline"],
+    "client_id": "...",               # from your WHOOP developer app
     "client_secret": "...",
 })
 
@@ -205,6 +208,19 @@ class MyStore(CredentialStore):
 
 ov = OpenVitals.with_builtins(credential_store=MyStore())
 ```
+
+### Token rotation — read this before building a custom store
+
+WHOOP, Strava, and Withings rotate their refresh tokens on every use. Each time OpenVitals refreshes an access token, the provider simultaneously issues a new refresh token and invalidates the old one. OpenVitals calls `set()` on your store immediately after every rotation, before using the new access token.
+
+**Your `set()` implementation must be durable** — it must complete the write before returning. If it fails, raises, or returns before the write is committed, the rotated token is lost and the only recovery is a new OAuth flow from scratch.
+
+Concretely:
+- An in-memory store works within a single process run but tokens are lost on exit. The next run will raise `AuthRequired` and require re-authentication.
+- A database-backed store must write synchronously. Do not fire-and-forget writes.
+- If your store can fail (network, disk), handle the exception and surface it — a swallowed error here means a silently orphaned token.
+
+The built-in `EncryptedFileStore` writes to disk synchronously and handles rotation correctly. If you are only using Hevy (API key) or Cronometer (session token), token rotation does not apply.
 
 ---
 

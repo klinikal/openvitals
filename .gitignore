@@ -9,6 +9,9 @@ secrets.json
 secrets.yaml
 .openvitals/        # default local credential store
 
+# Developer integration scripts — contain implementation-specific references
+scripts/
+
 # Python
 __pycache__/
 *.py[cod]
