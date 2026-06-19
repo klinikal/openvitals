@@ -52,7 +52,7 @@ from typing import Any, Iterable
 import httpx
 
 from openvitals.connectors.base import Account, BaseConnector
-from openvitals.errors import AuthRequired, ProviderPayloadError, ProviderUnavailable
+from openvitals.errors import AuthRequired, ProviderPayloadError, ProviderUnavailable, RateLimited
 from openvitals.schema.domains import Domain, Meal, RecordType
 from openvitals.schema.records import (
     DailySummaryCommon,
@@ -264,7 +264,6 @@ class _CronometerSession:
             timeout=30,
         )
         if resp.status_code == 429:
-            from openvitals.errors import RateLimited
             raise RateLimited("Cronometer rate limit hit", retry_after=None)
         if resp.status_code >= 500:
             raise ProviderUnavailable(f"Cronometer returned {resp.status_code}")
@@ -381,15 +380,30 @@ class CronometerConnector(BaseConnector):
         except httpx.RequestError as exc:
             raise ProviderUnavailable(f"Cronometer login network error: {exc}") from exc
 
+        # Cronometer rate-limits logins — check 429 before raise_for_status().
+        if resp.status_code == 429:
+            retry_after = resp.headers.get("Retry-After")
+            raise RateLimited(
+                "Cronometer login rate-limited (HTTP 429)",
+                retry_after=int(retry_after) if retry_after and retry_after.isdigit() else None,
+            )
         if resp.status_code >= 500:
             raise ProviderUnavailable(f"Cronometer login returned {resp.status_code}")
         resp.raise_for_status()
 
         data = resp.json()
+        # The limiter sometimes arrives as an HTTP 200 with "Too Many Attempts" in the body.
+        if data.get("error") == "Too Many Attempts" or data.get("result") == "Too Many Attempts":
+            raise RateLimited("Cronometer login rate-limited (Too Many Attempts)")
         if data.get("result") == "FAIL":
             raise AuthRequired(
                 "Cronometer login failed — check username/password. "
                 f"(result={data.get('result')!r})"
+            )
+        # Guard against a malformed success response missing required fields.
+        if "id" not in data or "sessionKey" not in data:
+            raise AuthRequired(
+                f"Cronometer login response missing required fields: {list(data.keys())}"
             )
 
         nutrient_dict = {n["id"]: n for n in data.get("nutrients", [])}
