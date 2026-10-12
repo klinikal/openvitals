@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch, call
 
+import httpx
 import pytest
 from pydantic import ValidationError
 
@@ -781,3 +782,97 @@ class TestFetchIntegration:
         ids1 = {r.source_record_id for r in records1}
         ids2 = {r.source_record_id for r in records2}
         assert ids1 == ids2
+
+
+# ---------------------------------------------------------------------------
+# Optional write (opt-in, mocked HTTP)
+# ---------------------------------------------------------------------------
+
+from openvitals.errors import ProviderUnavailable, WriteDisabled  # noqa: E402
+
+_WORKOUT = {
+    "title": "Test Day",
+    "start_time": "2026-01-01T10:00:00Z",
+    "end_time": "2026-01-01T11:00:00Z",
+    "exercises": [],
+}
+
+
+def _resp(status: int, body: Any = None) -> MagicMock:
+    r = MagicMock()
+    r.status_code = status
+    r.is_success = 200 <= status < 300
+    r.content = b"" if body is None else json.dumps(body).encode()
+    r.text = r.content.decode()
+    r.json.return_value = body
+    r.headers = {}
+    return r
+
+
+class TestWrite:
+    def _conn(self, allow: bool) -> HevyConnector:
+        return HevyConnector(make_store_with_key("fake-key-0000"), allow_write=allow)
+
+    def test_default_disabled_no_http(self):
+        with patch("httpx.request") as req:
+            for call_ in (
+                lambda c: c.create_workout(make_account(), _WORKOUT),
+                lambda c: c.update_workout(make_account(), "w1", _WORKOUT),
+                lambda c: c.create_body_measurement(make_account(), {"date": "2026-01-01"}),
+                lambda c: c.update_body_measurement(make_account(), "2026-01-01", {"weight_kg": 80}),
+            ):
+                with pytest.raises(WriteDisabled):
+                    call_(HevyConnector(make_store_with_key()))
+            req.assert_not_called()
+
+    def test_dry_run_returns_payload_even_when_disabled(self):
+        with patch("httpx.request") as req:
+            out = self._conn(False).create_workout(make_account(), _WORKOUT, dry_run=True)
+            req.assert_not_called()
+        assert out == {"method": "POST", "path": "/v1/workouts", "body": {"workout": _WORKOUT}}
+
+    def test_dry_run_update_paths(self):
+        c = self._conn(False)
+        assert c.update_workout(make_account(), "w1", _WORKOUT, dry_run=True)["path"] == "/v1/workouts/w1"
+        out = c.update_body_measurement(make_account(), "2026-01-01", {"weight_kg": 80}, dry_run=True)
+        assert out == {"method": "PUT", "path": "/v1/body_measurements/2026-01-01", "body": {"weight_kg": 80}}
+
+    def test_enabled_create_workout_sends_path_body_header(self):
+        with patch("httpx.request", return_value=_resp(201, {"id": "w1"})) as req:
+            out = self._conn(True).create_workout(make_account(), _WORKOUT)
+        assert out == {"id": "w1"}
+        args, kw = req.call_args
+        assert args == ("POST", "https://api.hevyapp.com/v1/workouts")
+        assert kw["json"] == {"workout": _WORKOUT}
+        assert kw["headers"] == {"api-key": "fake-key-0000"}
+
+    def test_enabled_measurement_empty_body_ok(self):
+        with patch("httpx.request", return_value=_resp(201)) as req:
+            out = self._conn(True).create_body_measurement(make_account(), {"date": "2026-01-01", "weight_kg": 80})
+        assert out == {}
+        assert req.call_args[1]["json"] == {"date": "2026-01-01", "weight_kg": 80}
+
+    def test_local_validation(self):
+        with pytest.raises(ProviderPayloadError, match="exercises"):
+            self._conn(True).create_workout(make_account(), {"title": "x", "start_time": "a", "end_time": "b"})
+        with pytest.raises(ProviderPayloadError, match="date"):
+            self._conn(True).create_body_measurement(make_account(), {"weight_kg": 1})
+
+    @pytest.mark.parametrize(
+        "status,exc",
+        [(401, AuthRequired), (429, RateLimited), (503, ProviderUnavailable), (400, ProviderPayloadError)],
+    )
+    def test_error_mapping(self, status, exc):
+        with patch("httpx.request", return_value=_resp(status, {"error": "bad thing"})):
+            with pytest.raises(exc):
+                self._conn(True).create_workout(make_account(), _WORKOUT)
+
+    def test_validation_message_surfaced(self):
+        with patch("httpx.request", return_value=_resp(400, {"error": "bad thing"})):
+            with pytest.raises(ProviderPayloadError, match="bad thing"):
+                self._conn(True).create_workout(make_account(), _WORKOUT)
+
+    def test_network_error(self):
+        with patch("httpx.request", side_effect=httpx.ConnectError("x")):
+            with pytest.raises(ProviderUnavailable):
+                self._conn(True).create_workout(make_account(), _WORKOUT)

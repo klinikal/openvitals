@@ -189,6 +189,12 @@ class TestBuiltins:
         with pytest.raises(KeyError):
             ov.connect("garmin", credentials={})
 
+    def test_hevy_write_defaults_off_and_wires_through(self):
+        ov = OpenVitals.with_builtins(credential_store=FakeStore())
+        assert ov._connectors["hevy"]._allow_write is False
+        ov = OpenVitals.with_builtins(credential_store=FakeStore(), hevy_allow_write=True)
+        assert ov._connectors["hevy"]._allow_write is True
+
     def test_with_builtins_requires_credential_store(self):
         """with_builtins() raises ValueError when no credential_store is given."""
         with pytest.raises(ValueError, match="credential_store"):

@@ -73,6 +73,7 @@ class OpenVitals:
         credential_store: CredentialStore | None = None,
         *,
         enable_unofficial: bool = False,
+        hevy_allow_write: bool = False,
     ) -> "OpenVitals":
         """
         Return an ``OpenVitals`` instance with built-in connectors pre-registered.
@@ -88,6 +89,9 @@ class OpenVitals:
             uses an unofficial API, stores your password encrypted at rest, and
             requires explicit opt-in per connector-contract.md.  Do not enable
             on shared systems.
+        hevy_allow_write:
+            Set to ``True`` to let the Hevy connector create/update workouts and
+            body measurements. Default off; other connectors stay read-only.
         """
         if credential_store is None:
             raise ValueError(
@@ -138,7 +142,9 @@ class OpenVitals:
                 credential_store=credential_store,
             )
         )
-        instance.register(HevyConnector(credential_store=credential_store))
+        instance.register(HevyConnector(
+                credential_store=credential_store, allow_write=hevy_allow_write
+            ))
         instance.register(OuraConnector(credential_store=credential_store))
         if enable_unofficial:
             instance.register(

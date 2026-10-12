@@ -49,12 +49,15 @@ log = logging.getLogger(__name__)
 import httpx
 
 from openvitals.connectors.base import Account, BaseConnector
+from urllib.parse import quote
+
 from openvitals.errors import (
     AuthRequired,
     PartialFetchError,
     ProviderPayloadError,
     ProviderUnavailable,
     RateLimited,
+    WriteDisabled,
 )
 from openvitals.schema.domains import (
     ActivityType,
@@ -324,6 +327,51 @@ def _body_measurement_to_record(
 # HTTP helpers
 # ---------------------------------------------------------------------------
 
+def _raise_for_status(resp: httpx.Response, path: str) -> None:
+    """Map a non-success Hevy response to a typed OpenVitals error (shared by reads and writes)."""
+    if resp.status_code == 401:
+        raise AuthRequired("Hevy API key is invalid or expired (401).")
+    if resp.status_code == 429:
+        retry_after = _parse_retry_after(resp)
+        raise RateLimited("Hevy rate limit hit (429).", retry_after=retry_after)
+    if resp.status_code >= 500:
+        raise ProviderUnavailable(f"Hevy API server error {resp.status_code} on {path}.")
+    if not resp.is_success:
+        raise ProviderPayloadError(
+            f"Hevy API unexpected status {resp.status_code} on {path}: {resp.text[:200]}"
+        )
+
+
+def _hevy_write(
+    method: str, path: str, api_key: str, body: dict[str, Any]
+) -> dict[str, Any]:
+    """Single authenticated POST/PUT. Same error mapping as ``_hevy_get``.
+
+    4xx validation failures surface Hevy's own message in ProviderPayloadError.
+    Empty success bodies (Hevy returns 201/200 with no body for measurements) -> ``{}``.
+    """
+    try:
+        resp = httpx.request(
+            method,
+            f"{HEVY_API_BASE}{path}",
+            headers={"api-key": api_key},
+            json=body,
+            timeout=REQUEST_TIMEOUT,
+        )
+    except httpx.TimeoutException as exc:
+        raise ProviderUnavailable(f"Hevy API timed out on {path}: {exc}") from exc
+    except httpx.RequestError as exc:
+        raise ProviderUnavailable(f"Hevy API unreachable ({path}): {exc}") from exc
+
+    _raise_for_status(resp, path)
+    if not resp.content:
+        return {}
+    try:
+        return resp.json()
+    except Exception as exc:
+        raise ProviderPayloadError(f"Hevy API returned non-JSON on {path}: {exc}") from exc
+
+
 def _hevy_get(path: str, api_key: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     """Single authenticated GET. Raises typed OpenVitals errors on failure."""
     try:
@@ -338,17 +386,7 @@ def _hevy_get(path: str, api_key: str, params: dict[str, Any] | None = None) -> 
     except httpx.RequestError as exc:
         raise ProviderUnavailable(f"Hevy API unreachable ({path}): {exc}") from exc
 
-    if resp.status_code == 401:
-        raise AuthRequired("Hevy API key is invalid or expired (401).")
-    if resp.status_code == 429:
-        retry_after = _parse_retry_after(resp)
-        raise RateLimited("Hevy rate limit hit (429).", retry_after=retry_after)
-    if resp.status_code >= 500:
-        raise ProviderUnavailable(f"Hevy API server error {resp.status_code} on {path}.")
-    if not resp.is_success:
-        raise ProviderPayloadError(
-            f"Hevy API unexpected status {resp.status_code} on {path}: {resp.text[:200]}"
-        )
+    _raise_for_status(resp, path)
 
     try:
         return resp.json()
@@ -401,6 +439,15 @@ def _paginate_all(
 # ---------------------------------------------------------------------------
 
 
+_WORKOUT_REQUIRED = ("title", "start_time", "end_time", "exercises")
+
+
+def _require(payload: dict[str, Any], keys: tuple[str, ...], what: str) -> None:
+    missing = [k for k in keys if k not in payload]
+    if missing:
+        raise ProviderPayloadError(f"Hevy {what} missing required field(s): {', '.join(missing)}.")
+
+
 class HevyConnector(BaseConnector):
     """
     OpenVitals connector for Hevy.
@@ -417,8 +464,9 @@ class HevyConnector(BaseConnector):
     source = "hevy"
     domains = [Domain.ACTIVITY.value, Domain.BODY.value]
 
-    def __init__(self, credential_store: CredentialStore) -> None:
+    def __init__(self, credential_store: CredentialStore, allow_write: bool = False) -> None:
         self._store = credential_store
+        self._allow_write = allow_write
 
     # -----------------------------------------------------------------------
     # connect
@@ -456,6 +504,59 @@ class HevyConnector(BaseConnector):
             source=self.source,
             metadata={"key_suffix": api_key[-4:]},  # last 4 chars for debugging only
         )
+
+    # -----------------------------------------------------------------------
+    # optional write (opt-in; Hevy-native payloads, no cross-provider mapping)
+    # -----------------------------------------------------------------------
+
+    def create_workout(
+        self, account: Account, workout: dict[str, Any], *, dry_run: bool = False
+    ) -> dict[str, Any]:
+        """POST /v1/workouts with ``{"workout": workout}``."""
+        _require(workout, _WORKOUT_REQUIRED, "workout")
+        return self._write(account, "POST", "/v1/workouts", {"workout": workout}, dry_run)
+
+    def update_workout(
+        self, account: Account, workout_id: str, workout: dict[str, Any], *, dry_run: bool = False
+    ) -> dict[str, Any]:
+        """PUT /v1/workouts/{workout_id} with ``{"workout": workout}``."""
+        _require(workout, _WORKOUT_REQUIRED, "workout")
+        return self._write(
+            account, "PUT", f"/v1/workouts/{quote(workout_id, safe='')}", {"workout": workout}, dry_run
+        )
+
+    def create_body_measurement(
+        self, account: Account, measurement: dict[str, Any], *, dry_run: bool = False
+    ) -> dict[str, Any]:
+        """POST /v1/body_measurements (body is the measurement itself, incl. ``date``)."""
+        _require(measurement, ("date",), "body measurement")
+        return self._write(account, "POST", "/v1/body_measurements", measurement, dry_run)
+
+    def update_body_measurement(
+        self, account: Account, date: str, measurement: dict[str, Any], *, dry_run: bool = False
+    ) -> dict[str, Any]:
+        """PUT /v1/body_measurements/{date} (body has no ``date`` field; it is in the path)."""
+        return self._write(
+            account, "PUT", f"/v1/body_measurements/{quote(date, safe='')}", measurement, dry_run
+        )
+
+    def _write(
+        self, account: Account, method: str, path: str, body: dict[str, Any], dry_run: bool
+    ) -> dict[str, Any]:
+        if dry_run:
+            return {"method": method, "path": path, "body": body}
+        if not self._allow_write:
+            raise WriteDisabled(
+                "Hevy write access is disabled. Opt in with HevyConnector(allow_write=True) "
+                "or OpenVitals.with_builtins(hevy_allow_write=True)."
+            )
+        creds = self._store.get(self.source, account.account_ref)
+        if not creds:
+            raise AuthRequired(
+                f"No stored credentials for account {account.account_ref!r}. "
+                "Call connect() first."
+            )
+        return _hevy_write(method, path, creds["hevy_api_key"], body)
 
     # -----------------------------------------------------------------------
     # fetch
