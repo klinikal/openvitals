@@ -101,6 +101,8 @@ account = ov.connect("hevy", credentials={"hevy_api_key": "..."})
 
 Hevy `account_ref` is now `hevy:<user id>` (previously derived from the key); reconnect Hevy once after upgrading.
 
+Hevy is the only connector with optional write access (default off). Enable it with `OpenVitals.with_builtins(..., hevy_allow_write=True)` or `HevyConnector(..., allow_write=True)`, then call `create_workout`, `update_workout`, `create_body_measurement` or `update_body_measurement` on the connector with Hevy-native payloads. Pass `dry_run=True` to preview the exact request without sending it. Hevy has no delete endpoint.
+
 See each connector's module docstring for the full credential shape.
 
 ### 5. Fetch records

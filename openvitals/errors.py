@@ -66,6 +66,10 @@ class ProviderPayloadError(OpenVitalsError):
     """
 
 
+class WriteDisabled(OpenVitalsError):
+    """A write was attempted on a connector that was not opted in to writes."""
+
+
 class NoData(OpenVitalsError):
     """
     The provider has no records for the requested range / account.

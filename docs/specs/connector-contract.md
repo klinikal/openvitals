@@ -88,6 +88,10 @@ A connector is considered complete when all of the following are covered:
 
 ---
 
+## Optional write
+
+Connectors are read-only by default. A connector may offer opt-in writes (currently only Hevy): construct it with an explicit flag (`allow_write=True`), accept Provider-native payloads with no cross-provider mapping, support `dry_run=True` (returns `{method, path, body}`, sends nothing), and raise `WriteDisabled` before any network call when not opted in. Errors map as for reads.
+
 ## 7. Cronometer — unofficial API
 
 The Cronometer connector uses a reverse-engineered mobile API, not an official OAuth integration. Its failure modes differ from the OAuth-based connectors.
