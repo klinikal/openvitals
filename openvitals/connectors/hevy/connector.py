@@ -49,6 +49,8 @@ log = logging.getLogger(__name__)
 import httpx
 
 from openvitals.connectors.base import Account, BaseConnector
+from urllib.parse import quote
+
 from openvitals.errors import (
     AuthRequired,
     PartialFetchError,
@@ -520,7 +522,7 @@ class HevyConnector(BaseConnector):
         """PUT /v1/workouts/{workout_id} with ``{"workout": workout}``."""
         _require(workout, _WORKOUT_REQUIRED, "workout")
         return self._write(
-            account, "PUT", f"/v1/workouts/{workout_id}", {"workout": workout}, dry_run
+            account, "PUT", f"/v1/workouts/{quote(workout_id, safe='')}", {"workout": workout}, dry_run
         )
 
     def create_body_measurement(
@@ -535,7 +537,7 @@ class HevyConnector(BaseConnector):
     ) -> dict[str, Any]:
         """PUT /v1/body_measurements/{date} (body has no ``date`` field; it is in the path)."""
         return self._write(
-            account, "PUT", f"/v1/body_measurements/{date}", measurement, dry_run
+            account, "PUT", f"/v1/body_measurements/{quote(date, safe='')}", measurement, dry_run
         )
 
     def _write(
