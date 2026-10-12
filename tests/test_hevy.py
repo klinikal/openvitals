@@ -408,6 +408,11 @@ class TestBodyMeasurementToRecord:
         record = _body_measurement_to_record(m, ACCOUNT_REF, INGESTED_AT)
         assert record.common.body_fat_pct == pytest.approx(17.6)
 
+    def test_circumferences_in_source_extras(self):
+        m = {**self._first_measurement(), "waist": 80.5, "left_bicep_cm": 35.0}
+        record = _body_measurement_to_record(m, ACCOUNT_REF, INGESTED_AT)
+        assert record.source_extras == {"waist": 80.5, "left_bicep_cm": 35.0}
+
     def test_null_fields_stay_null(self):
         """Second measurement has only weight_kg; all others should be null."""
         m = load_fixture("body_measurements_page.json")["body_measurements"][1]
@@ -496,12 +501,27 @@ class TestAuth:
         store = InMemoryCredentialStore()
         connector = HevyConnector(store)
         with patch("openvitals.connectors.hevy.connector._hevy_get") as mock_get:
-            mock_get.return_value = {"workouts": [], "page_count": 1}
+            mock_get.return_value = {"data": {"id": "00000000-0000-0000-0000-000000000001", "username": "x"}}
             account = connector.connect({"hevy_api_key": "valid-key-12345678"})
         # Key should be stored
         creds = store.get("hevy", account.account_ref)
         assert creds is not None
         assert creds["hevy_api_key"] == "valid-key-12345678"
+
+    def test_connect_account_ref_from_user_id(self):
+        store = InMemoryCredentialStore()
+        connector = HevyConnector(store)
+        with patch("openvitals.connectors.hevy.connector._hevy_get") as mock_get:
+            mock_get.return_value = {"data": {"id": "00000000-0000-0000-0000-000000000001"}}
+            account = connector.connect({"hevy_api_key": "valid-key-12345678"})
+        assert mock_get.call_args[0][0] == "/v1/user/info"
+        assert account.account_ref == "hevy:00000000-0000-0000-0000-000000000001"
+
+    def test_connect_missing_user_id_raises(self):
+        connector = HevyConnector(InMemoryCredentialStore())
+        with patch("openvitals.connectors.hevy.connector._hevy_get", return_value={"data": {}}):
+            with pytest.raises(ProviderPayloadError):
+                connector.connect({"hevy_api_key": "valid-key-12345678"})
 
     def test_api_key_not_in_account_metadata_full(self):
         """Full key must never appear in account.metadata."""
@@ -509,7 +529,7 @@ class TestAuth:
         connector = HevyConnector(store)
         test_key = "supersecret-api-key-full-value"
         with patch("openvitals.connectors.hevy.connector._hevy_get") as mock_get:
-            mock_get.return_value = {"workouts": [], "page_count": 1}
+            mock_get.return_value = {"data": {"id": "00000000-0000-0000-0000-000000000001", "username": "x"}}
             account = connector.connect({"hevy_api_key": test_key})
         # The full key must not be in metadata values
         for v in account.metadata.values():
@@ -587,6 +607,18 @@ class TestDeletedEvents:
         deleted_records = [r for r in records if r.source_extras and r.source_extras.get("deleted")]
         assert len(deleted_records) == 1
         assert deleted_records[0].source_record_id == "dead-workout-uuid"
+
+    def test_deleted_event_uses_deleted_at(self):
+        connector = HevyConnector(make_store_with_key())
+        ev = {"type": "deleted", "id": "dead-workout-uuid", "deleted_at": "2026-06-07T12:30:00Z"}
+
+        def mock_paginate(path, api_key, items_key, extra_params=None):
+            return [ev] if "events" in path else []
+
+        with patch("openvitals.connectors.hevy.connector._paginate_all", side_effect=mock_paginate):
+            (rec,) = list(connector.fetch(make_account()))
+        assert rec.occurred_at == datetime(2026, 6, 7, 12, 30, tzinfo=timezone.utc)
+        assert rec.local_date == date(2026, 6, 7)
 
     def test_deleted_event_missing_id_raises(self):
         """Deleted event with no 'id' field should raise ProviderPayloadError."""

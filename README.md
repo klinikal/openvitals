@@ -99,6 +99,8 @@ account = ov.connect("whoop", credentials={
 account = ov.connect("hevy", credentials={"hevy_api_key": "..."})
 ```
 
+Hevy `account_ref` is now `hevy:<user id>` (previously derived from the key); reconnect Hevy once after upgrading.
+
 See each connector's module docstring for the full credential shape.
 
 ### 5. Fetch records

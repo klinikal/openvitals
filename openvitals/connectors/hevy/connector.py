@@ -251,6 +251,13 @@ def _workout_to_record(
     )
 
 
+_BODY_EXTRA_KEYS = (
+    "neck_cm", "shoulder_cm", "chest_cm", "left_bicep_cm", "right_bicep_cm",
+    "left_forearm_cm", "right_forearm_cm", "abdomen", "waist", "hips",
+    "left_thigh", "right_thigh", "left_calf", "right_calf",
+)
+
+
 def _body_measurement_to_record(
     measurement: dict[str, Any],
     account_ref: str,
@@ -294,6 +301,9 @@ def _body_measurement_to_record(
 
     source_record_id = f"{account_ref}:{date_str}:body_measurement"
 
+    # Circumferences have no common-schema fields; keep non-null ones in source_extras.
+    source_extras = {k: measurement[k] for k in _BODY_EXTRA_KEYS if measurement.get(k) is not None}
+
     return Record(
         source="hevy",
         domain=Domain.BODY.value,
@@ -306,6 +316,7 @@ def _body_measurement_to_record(
         local_date=local_date,
         common=common,
         raw=measurement,
+        source_extras=source_extras or None,
     )
 
 
@@ -418,7 +429,7 @@ class HevyConnector(BaseConnector):
         Authenticate with Hevy using a static API key.
 
         ``credentials`` must contain ``"hevy_api_key"``.  The key is validated
-        by a lightweight probe against GET /v1/workouts?pageSize=1.
+        by GET /v1/user/info, whose ``data.id`` becomes the stable account_ref.
 
         Raises:
             AuthRequired: key missing, empty, or rejected by Hevy (401).
@@ -431,13 +442,11 @@ class HevyConnector(BaseConnector):
                 "Get your key from https://hevy.com/settings?developer (Hevy Pro required)."
             )
 
-        # Validate by probing the workouts endpoint to confirm the key is accepted
-        _hevy_get("/v1/workouts", api_key, {"pageSize": 1})
-
-        # Use the API key itself as the account_ref (it's static per-user; Hevy has no
-        # user-info endpoint in the public API). We store only the last 8 chars for the
-        # ref so the full key isn't embedded in Record fields or logs.
-        account_ref = f"hevy:{api_key[-8:]}"
+        info = _hevy_get("/v1/user/info", api_key)
+        user_id = (info.get("data") or {}).get("id")
+        if not user_id:
+            raise ProviderPayloadError("Hevy /v1/user/info response missing data.id.")
+        account_ref = f"hevy:{user_id}"
 
         # Persist the key so fetch() can retrieve it
         self._store.set(self.source, account_ref, {"hevy_api_key": api_key})
@@ -543,16 +552,18 @@ class HevyConnector(BaseConnector):
                         f"Hevy 'deleted' event missing 'id'. Event: {event!r}"
                     )
                 # Build a minimal workout Record flagged as deleted.
-                # occurred_at uses ingested_at as a sentinel — it's the only timestamp
-                # available for deleted events (no payload to parse start_time from).
+                # occurred_at = event deleted_at when present, else ingested_at
+                # (no payload to parse start_time from).
+                occurred_at = _parse_dt(event.get("deleted_at")) or ingested_at
                 yield Record(
                     source="hevy",
                     domain=Domain.ACTIVITY.value,
                     record_type=RecordType.WORKOUT,
                     source_record_id=workout_id,
                     account_ref=account_ref,
-                    occurred_at=ingested_at,
+                    occurred_at=occurred_at,
                     ingested_at=ingested_at,
+                    local_date=occurred_at.date(),
                     common=WorkoutCommon(activity_type=ActivityType.STRENGTH),
                     raw=event,
                     source_extras={"deleted": True},
