@@ -37,7 +37,10 @@ from openvitals.connectors.cronometer.connector import (
     _map_source,
     _scale_nutrient,
 )
-from openvitals.errors import AuthRequired
+import httpx
+
+from openvitals.connectors.cronometer.connector import _CronometerSession
+from openvitals.errors import AuthRequired, ProviderPayloadError, ProviderUnavailable
 from openvitals.schema.domains import Meal, RecordType
 from openvitals.schema.records import Micronutrients, Record
 
@@ -147,7 +150,7 @@ def collect_records(
         MockSession.return_value = session_instance
 
         since_dt = datetime(fetch_date.year, fetch_date.month, fetch_date.day, 0, 0, 0, tzinfo=UTC)
-        return list(connector.fetch(account, since=since_dt))
+        return list(connector.fetch(account, since=since_dt, _today=date(2026, 6, 7)))
 
 
 # ---------------------------------------------------------------------------
@@ -571,7 +574,7 @@ class TestSessionExpiry:
             MockSession.return_value = session_instance
 
             since_dt = datetime(2026, 6, 7, 0, 0, 0, tzinfo=UTC)
-            records = list(connector.fetch(account, since=since_dt))
+            records = list(connector.fetch(account, since=since_dt, _today=date(2026, 6, 7)))
 
         # After re-login the fetch should complete normally
         assert any(r.record_type == RecordType.DAILY_SUMMARY for r in records)
@@ -602,7 +605,7 @@ class TestSessionExpiry:
 
             since_dt = datetime(2026, 6, 7, 0, 0, 0, tzinfo=UTC)
             with pytest.raises(AuthRequired):
-                list(connector.fetch(account, since=since_dt))
+                list(connector.fetch(account, since=since_dt, _today=date(2026, 6, 7)))
 
 
 # ---------------------------------------------------------------------------
@@ -685,7 +688,7 @@ class TestFoodResolutionFailure:
             MockSession.return_value = session_instance
 
             since_dt = datetime(2026, 6, 7, 0, 0, 0, tzinfo=UTC)
-            return list(connector.fetch(account, since=since_dt))
+            return list(connector.fetch(account, since=since_dt, _today=date(2026, 6, 7)))
 
     def test_no_food_entry_records_emitted(self, diary_response, nutrient_dict):
         records = self._fetch_with_failed_food(diary_response, nutrient_dict)
@@ -713,3 +716,94 @@ class TestFoodResolutionFailure:
         records = self._fetch_with_failed_food(diary_response, nutrient_dict)
         summary = next(r for r in records if r.record_type == RecordType.DAILY_SUMMARY)
         assert summary.common.micronutrients is None, "micronutrients must be None when no food entries resolved"
+
+
+# ---------------------------------------------------------------------------
+# Tests — HTTP robustness
+# ---------------------------------------------------------------------------
+
+
+def _session_with(handler) -> _CronometerSession:
+    return _CronometerSession(1, "t", {}, httpx.Client(transport=httpx.MockTransport(handler)))
+
+
+class TestPostErrorMapping:
+    def test_network_error_is_unavailable(self):
+        def h(req):
+            raise httpx.ConnectError("boom")
+
+        with pytest.raises(ProviderUnavailable):
+            _session_with(h)._post("/x", {})
+
+    @pytest.mark.parametrize("code", [401, 403])
+    def test_auth_status_is_auth_required(self, code):
+        with pytest.raises(AuthRequired):
+            _session_with(lambda r: httpx.Response(code))._post("/x", {})
+
+    def test_non_json_is_payload_error(self):
+        with pytest.raises(ProviderPayloadError):
+            _session_with(lambda r: httpx.Response(200, content=b"<html>"))._post("/x", {})
+
+    def test_diary_401_signals_expiry(self):
+        assert _session_with(lambda r: httpx.Response(401)).get_diary(date(2026, 6, 7)) is None
+
+    def test_food_non_json_returns_none(self):
+        assert _session_with(lambda r: httpx.Response(200, content=b"x")).get_food(1) is None
+
+
+class TestLoginErrorMapping:
+    @pytest.mark.parametrize(
+        "resp,exc",
+        [
+            (httpx.Response(401), AuthRequired),
+            (httpx.Response(200, content=b"nope", request=httpx.Request("POST", "http://x")), ProviderPayloadError),
+        ],
+    )
+    def test_login_status_and_body(self, resp, exc):
+        with patch("openvitals.connectors.cronometer.connector.httpx.post", return_value=resp):
+            with pytest.raises(exc):
+                CronometerConnector._do_login("u", "p")
+
+    def test_login_network_error(self):
+        with patch(
+            "openvitals.connectors.cronometer.connector.httpx.post",
+            side_effect=httpx.ConnectError("boom"),
+        ):
+            with pytest.raises(ProviderUnavailable):
+                CronometerConnector._do_login("u", "p")
+
+
+class TestFetchResources:
+    def _run(self, diary, nutrient_dict, get_food, days=2):
+        from openvitals.connectors.base import Account
+
+        store = FakeStore({"cronometer:42": {"username": "u", "password": "p", "token": "t", "timezone": "UTC"}})
+        connector = _make_connector(store)
+        account = Account(account_ref="42", source="cronometer", metadata={"cronometer_user_id": 42, "timezone": "UTC"})
+        with (
+            patch("openvitals.connectors.cronometer.connector._CronometerSession") as MockSession,
+            patch("openvitals.connectors.cronometer.connector.time.sleep") as sleep,
+        ):
+            sess = MagicMock()
+            sess.nutrient_dict = nutrient_dict
+            sess.get_diary.return_value = diary
+            sess.get_food.side_effect = get_food
+            MockSession.return_value = sess
+            list(
+                connector.fetch(
+                    account,
+                    since=datetime(2026, 6, 6, tzinfo=UTC),
+                    _today=date(2026, 6, 5 + days),
+                )
+            )
+        return sess, sleep
+
+    def test_failed_food_is_retried_not_cached(self, diary_response, food_response, nutrient_dict):
+        results = iter([None, food_response])
+        sess, _ = self._run(diary_response, nutrient_dict, lambda fid: next(results))
+        assert sess.get_food.call_count == 2  # day 2 retried after day 1 failure
+
+    def test_session_closed_and_no_trailing_sleep(self, diary_response, food_response, nutrient_dict):
+        sess, sleep = self._run(diary_response, nutrient_dict, lambda fid: food_response)
+        sess.close.assert_called_once()
+        assert sleep.call_args_list.count(((1,),)) == 1  # 2 days -> 1 inter-day sleep
