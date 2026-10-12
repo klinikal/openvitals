@@ -257,18 +257,19 @@ class _CronometerSession:
         return {"userId": self._uid, "token": self._token, **_APP_AUTH}
 
     def _post(self, endpoint: str, payload: dict) -> dict:
-        resp = self._client.post(
-            f"{_BASE}{endpoint}",
-            content=_encode(payload),
-            headers=_HEADERS,
-            timeout=30,
-        )
-        if resp.status_code == 429:
-            raise RateLimited("Cronometer rate limit hit", retry_after=None)
-        if resp.status_code >= 500:
-            raise ProviderUnavailable(f"Cronometer returned {resp.status_code}")
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp = self._client.post(
+                f"{_BASE}{endpoint}",
+                content=_encode(payload),
+                headers=_HEADERS,
+                timeout=30,
+            )
+        except httpx.RequestError as exc:
+            raise ProviderUnavailable(f"Cronometer network error: {exc}") from exc
+        return _parse_response(resp)
+
+    def close(self) -> None:
+        self._client.close()
 
     def get_diary(self, day: date) -> dict | None:
         """Fetch diary for one day.  Returns None if the session has expired."""
@@ -278,7 +279,10 @@ class _CronometerSession:
             "auth": self._auth_block(),
             "lastSeen": 0,
         }
-        data = self._post("/api/v2/get_diary", payload)
+        try:
+            data = self._post("/api/v2/get_diary", payload)
+        except AuthRequired:
+            return None  # 401/403 == expired session; caller re-logins
         if data.get("result") == "FAIL":
             return None  # session expired or auth failure
         return data
@@ -295,8 +299,30 @@ class _CronometerSession:
             if data.get("result") == "FAIL":
                 return None
             return data
-        except (httpx.HTTPStatusError, ProviderUnavailable):
+        except (httpx.HTTPStatusError, ProviderUnavailable, ProviderPayloadError):
             return None
+
+
+def _parse_response(resp: httpx.Response) -> dict:
+    """Map an HTTP response to a JSON dict or the matching OpenVitals error."""
+    if resp.status_code == 429:
+        retry_after = resp.headers.get("Retry-After")
+        raise RateLimited(
+            "Cronometer rate limit hit",
+            retry_after=int(retry_after) if retry_after and retry_after.isdigit() else None,
+        )
+    if resp.status_code in (401, 403):
+        raise AuthRequired(f"Cronometer rejected the session (HTTP {resp.status_code})")
+    if resp.status_code >= 500:
+        raise ProviderUnavailable(f"Cronometer returned {resp.status_code}")
+    resp.raise_for_status()
+    try:
+        data = resp.json()
+    except ValueError as exc:
+        raise ProviderPayloadError("Cronometer returned a non-JSON body") from exc
+    if not isinstance(data, dict):
+        raise ProviderPayloadError("Cronometer returned an unexpected JSON shape")
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -381,17 +407,7 @@ class CronometerConnector(BaseConnector):
             raise ProviderUnavailable(f"Cronometer login network error: {exc}") from exc
 
         # Cronometer rate-limits logins — check 429 before raise_for_status().
-        if resp.status_code == 429:
-            retry_after = resp.headers.get("Retry-After")
-            raise RateLimited(
-                "Cronometer login rate-limited (HTTP 429)",
-                retry_after=int(retry_after) if retry_after and retry_after.isdigit() else None,
-            )
-        if resp.status_code >= 500:
-            raise ProviderUnavailable(f"Cronometer login returned {resp.status_code}")
-        resp.raise_for_status()
-
-        data = resp.json()
+        data = _parse_response(resp)
         # The limiter sometimes arrives as an HTTP 200 with "Too Many Attempts" in the body.
         if data.get("error") == "Too Many Attempts" or data.get("result") == "Too Many Attempts":
             raise RateLimited("Cronometer login rate-limited (Too Many Attempts)")
@@ -465,6 +481,21 @@ class CronometerConnector(BaseConnector):
         since: datetime | None = None,
         _today: date | None = None,
     ) -> Iterable[Record]:
+        """Yield records; always closes every HTTP session opened (see ``_fetch``)."""
+        opened: list[_CronometerSession] = []
+        try:
+            yield from self._fetch(account, since, _today, opened)
+        finally:
+            for sess in opened:
+                sess.close()
+
+    def _fetch(
+        self,
+        account: Account,
+        since: datetime | None,
+        _today: date | None,
+        opened: list,
+    ) -> Iterable[Record]:
         """Yield ``food_entry``, ``daily_summary``, and ``food_definition`` Records.
 
         ``since`` — UTC datetime; the connector fetches from the corresponding
@@ -511,6 +542,7 @@ class CronometerConnector(BaseConnector):
 
         uid = cronometer_user_id
         session = _CronometerSession(uid, stored_token, nutrient_dict, httpx.Client())
+        opened.append(session)
 
         # Determine date range
         today = _today or date.today()
@@ -539,6 +571,7 @@ class CronometerConnector(BaseConnector):
                         stored_creds["username"], stored_creds["password"], tz
                     )
                     session = _CronometerSession(uid2, token2, nd2, httpx.Client())
+                    opened.append(session)
                     # Update stored token + nutrient_dict
                     if self._store is not None:
                         updated = dict(stored_creds)
@@ -569,7 +602,8 @@ class CronometerConnector(BaseConnector):
             for food_id in food_ids_today:
                 if food_id not in food_cache:
                     food_data = session.get_food(food_id)
-                    food_cache[food_id] = food_data
+                    if food_data is not None:  # don't cache failures; retry on a later day
+                        food_cache[food_id] = food_data
                     time.sleep(0.2)  # conservative throttle
 
             # Accumulate per-entry micronutrients so daily_summary can sum them
@@ -761,7 +795,8 @@ class CronometerConnector(BaseConnector):
             )
 
             current += timedelta(days=1)
-            time.sleep(1)  # conservative rate limit — Cronometer limits unknown
+            if current <= today:
+                time.sleep(1)  # conservative rate limit — Cronometer limits unknown
 
 
 # ---------------------------------------------------------------------------
