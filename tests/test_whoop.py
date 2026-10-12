@@ -356,7 +356,7 @@ class TestSleepMapping:
         assert c.stage_light_minutes is not None
         assert c.stage_awake_minutes is not None
         assert c.awakenings_count == 3
-        assert c.avg_hrv_ms == pytest.approx(68.4)
+        assert c.avg_hrv_ms is None  # not in WHOOP SleepScore
         assert c.respiratory_rate_bpm == pytest.approx(15.1)
         assert c.provider_sleep_score == 84
         assert c.score_state == ScoreState.SCORED
@@ -466,14 +466,15 @@ class TestSleepMapping:
         with pytest.raises(ProviderPayloadError, match="missing 'id'"):
             connector._map_sleep(raw, account.account_ref, datetime.now(UTC))
 
-    def test_sleep_hrv_in_ms_not_converted(self):
-        """HRV must be passed through as milliseconds — WHOOP reports rMSSD in ms already."""
+    def test_sleep_zero_stage_minutes_preserved(self):
         raw = load_fixture("sleep_scored.json")
+        raw["score"]["stage_summary"]["total_rem_sleep_time_milli"] = 0
+        del raw["score"]["stage_summary"]["total_light_sleep_time_milli"]
         connector, account = self._make_connector_and_account()
-        record = connector._map_sleep(raw, account.account_ref, datetime.now(UTC))
+        c = connector._map_sleep(raw, account.account_ref, datetime.now(UTC)).common
 
-        # Fixture has hrv_rmssd_milli=68.4 — should arrive as 68.4 ms in common
-        assert record.common.avg_hrv_ms == pytest.approx(68.4)
+        assert c.stage_rem_minutes == 0
+        assert c.stage_light_minutes is None
 
 
 # ---------------------------------------------------------------------------

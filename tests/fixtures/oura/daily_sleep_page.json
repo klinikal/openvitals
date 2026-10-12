@@ -1,0 +1,12 @@
+{
+  "data": [
+    {
+      "id": "oura-daily-sleep-001",
+      "day": "2026-06-06",
+      "score": 82,
+      "timestamp": "2026-06-06T00:00:00+00:00",
+      "contributors": {"deep_sleep": 80, "efficiency": 90, "latency": 85, "rem_sleep": 75, "restfulness": 70, "timing": 88, "total_sleep": 84}
+    }
+  ],
+  "next_token": null
+}

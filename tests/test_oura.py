@@ -121,7 +121,7 @@ class _InMemoryStore(CredentialStore):
 
 ACCOUNT_REF = "oura-user-abc123"
 
-ALL_REQUIRED_SCOPES = ["personal", "daily", "sleep", "workout"]
+ALL_REQUIRED_SCOPES = ["personal", "daily", "workout"]
 
 VALID_CREDENTIALS: dict[str, Any] = {
     "access_token": "test_oura_access_token",
@@ -210,7 +210,7 @@ class TestMissingScopes:
         """Missing any required scope must raise MissingScope loudly — not a silent empty result."""
         connector = make_connector()
         bad_creds = dict(VALID_CREDENTIALS)
-        bad_creds["scopes"] = ["personal", "daily", "sleep"]  # missing "workout"
+        bad_creds["scopes"] = ["personal", "daily"]  # missing "workout"
 
         with pytest.raises(MissingScope):
             connector.connect(credentials=bad_creds)
@@ -322,7 +322,9 @@ class TestSleepMapping:
         raw = load_sleep_item()
         connector, account = self._make_connector_and_account()
 
-        record = connector._map_sleep(raw, account.account_ref, datetime.now(UTC))
+        record = connector._map_sleep(
+            raw, account.account_ref, datetime.now(UTC), {"2026-06-06": 82}
+        )
         c = record.common
 
         # sleep_page1 has total_sleep_duration=28800s → 480 min
@@ -347,8 +349,14 @@ class TestSleepMapping:
         assert c.avg_hrv_ms == pytest.approx(65.2)
         # respiratory_rate_bpm=14.8
         assert c.respiratory_rate_bpm == pytest.approx(14.8)
-        # provider_sleep_score=82
+        # score comes from daily_sleep, joined by day
         assert c.provider_sleep_score == 82
+
+    def test_sleep_score_none_without_daily_sleep_match(self):
+        raw = load_sleep_item()
+        connector, account = self._make_connector_and_account()
+        record = connector._map_sleep(raw, account.account_ref, datetime.now(UTC))
+        assert record.common.provider_sleep_score is None
 
     def test_sleep_raw_is_verbatim(self):
         """raw must equal the provider payload — no decoding, renaming, or dropping."""
@@ -584,6 +592,7 @@ class TestPagination:
             mock_get.side_effect = [
                 page1_resp,
                 page2_resp,
+                _empty_list_resp(),  # daily_sleep
                 _empty_list_resp(),
                 _empty_list_resp(),
             ]
@@ -663,6 +672,19 @@ class TestErrorHandling:
 
 
 class TestFetchAllDomains:
+    def test_fetch_joins_sleep_score_from_daily_sleep(self):
+        store = _InMemoryStore(initial={("oura", ACCOUNT_REF): dict(VALID_CREDENTIALS)})
+        connector = make_connector(store)
+        with patch("openvitals.connectors.oura.connector.httpx.get") as mock_get:
+            mock_get.side_effect = [
+                _mock_resp(200, load_fixture("sleep_page2.json")),  # day 2026-06-07
+                _mock_resp(200, {"data": [{"day": "2026-06-07", "score": 77}], "next_token": None}),
+                _empty_list_resp(),
+                _empty_list_resp(),
+            ]
+            records = list(connector.fetch(make_account()))
+        assert records[0].common.provider_sleep_score == 77
+
     def test_fetch_emits_records_from_all_three_endpoints(self):
         """fetch() must emit records from sleep, readiness, and workout endpoints."""
         store = _InMemoryStore(initial={("oura", ACCOUNT_REF): dict(VALID_CREDENTIALS)})
@@ -676,6 +698,7 @@ class TestFetchAllDomains:
         with patch("openvitals.connectors.oura.connector.httpx.get") as mock_get:
             mock_get.side_effect = [
                 _mock_resp(200, sleep_page),
+                _empty_list_resp(),  # daily_sleep
                 _mock_resp(200, readiness_page),
                 _mock_resp(200, workout_page),
             ]
@@ -696,6 +719,7 @@ class TestFetchAllDomains:
         with patch("openvitals.connectors.oura.connector.httpx.get") as mock_get:
             mock_get.side_effect = [
                 _mock_resp(200, load_fixture("sleep_page2.json")),
+                _empty_list_resp(),  # daily_sleep
                 _mock_resp(200, load_fixture("daily_readiness_page.json")),
                 _mock_resp(200, load_fixture("workout_page.json")),
             ]

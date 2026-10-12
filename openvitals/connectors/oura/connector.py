@@ -6,6 +6,7 @@ API: Oura Cloud API v2 — https://api.ouraring.com/v2
 ## Endpoints used
 - GET /v2/usercollection/personal_info → account_ref (stable Oura user_id)
 - GET /v2/usercollection/sleep         → sleep_session records
+- GET /v2/usercollection/daily_sleep   → sleep score (joined to long_sleep by day)
 - GET /v2/usercollection/daily_readiness → daily_recovery records
 - GET /v2/usercollection/workout       → workout records
 
@@ -89,7 +90,7 @@ OURA_AUTH_URL = "https://cloud.ouraring.com/oauth/authorize"
 OURA_TOKEN_URL = "https://api.ouraring.com/oauth/token"
 OURA_API_BASE = "https://api.ouraring.com"
 
-REQUIRED_SCOPES = {"personal", "daily", "sleep", "workout"}
+REQUIRED_SCOPES = {"personal", "daily", "workout"}
 
 # Refresh the access token if it expires within 5 minutes
 _EXPIRY_BUFFER_SECONDS = 300
@@ -474,8 +475,18 @@ class OuraConnector(BaseConnector):
             sleep_items = _get_paginated(
                 "/v2/usercollection/sleep", access_token, dict(date_params)
             )
+            # Sleep score lives only on daily_sleep, keyed by day.
+            sleep_scores = {
+                d["day"]: d.get("score")
+                for d in _get_paginated(
+                    "/v2/usercollection/daily_sleep", access_token, dict(date_params)
+                )
+                if d.get("day")
+            }
             for raw_sleep in sleep_items:
-                record = self._map_sleep(raw_sleep, account.account_ref, ingested_at)
+                record = self._map_sleep(
+                    raw_sleep, account.account_ref, ingested_at, sleep_scores
+                )
                 collected.append(record)
         except (RateLimited, ProviderUnavailable, ProviderPayloadError, AuthRequired):
             raise
@@ -547,6 +558,7 @@ class OuraConnector(BaseConnector):
         raw: dict[str, Any],
         account_ref: str,
         ingested_at: datetime,
+        sleep_scores: dict[str, int | None] | None = None,
     ) -> Record:
         """Map an Oura /v2/usercollection/sleep record → sleep_session Record.
 
@@ -598,7 +610,12 @@ class OuraConnector(BaseConnector):
             respiratory_rate_bpm=raw.get("average_breath"),
             avg_spo2_pct=None,       # not in Oura sleep record directly
             awakenings_count=None,   # not exposed in this schema
-            provider_sleep_score=raw.get("score"),  # top-level sleep score
+            # daily_sleep score applies to the night's main (long_sleep) period only
+            provider_sleep_score=(
+                (sleep_scores or {}).get(local_date_str)
+                if raw.get("type") == "long_sleep"
+                else None
+            ),
             score_state=None,
         )
 
