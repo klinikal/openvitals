@@ -17,7 +17,11 @@ from pathlib import Path
 import pytest
 from cryptography.fernet import Fernet
 
-from openvitals.storage.credentials import EncryptedFileStore, ENV_VAR_FERNET_KEY
+from openvitals.storage.credentials import (
+    ENV_VAR_FERNET_KEY,
+    CredentialStoreError,
+    EncryptedFileStore,
+)
 
 
 @pytest.fixture
@@ -98,13 +102,41 @@ class TestEncryptedFileStore:
 
     def test_different_key_cannot_decrypt(self, tmp_path):
         """Data written with one key cannot be decrypted with a different key."""
-        from cryptography.fernet import InvalidToken
-
         key1 = Fernet.generate_key()
         key2 = Fernet.generate_key()
         store_path = tmp_path / "credentials.json"
         s1 = EncryptedFileStore(path=store_path, fernet_key=key1)
         s1.set("test", "acct", {"token": "secret"})
         s2 = EncryptedFileStore(path=store_path, fernet_key=key2)
-        with pytest.raises(InvalidToken):
+        with pytest.raises(CredentialStoreError, match="encryption key"):
             s2.get("test", "acct")
+
+    def test_corrupt_store_raises_and_is_not_overwritten(self, store, tmp_path):
+        path = tmp_path / "credentials.json"
+        path.write_text("{not json")
+        with pytest.raises(CredentialStoreError, match="corrupt"):
+            store.get("a", "b")
+        with pytest.raises(CredentialStoreError):
+            store.set("a", "b", {"k": "v"})
+        with pytest.raises(CredentialStoreError):
+            store.delete("a", "b")
+        assert path.read_text() == "{not json"
+
+    def test_non_object_json_raises(self, store, tmp_path):
+        (tmp_path / "credentials.json").write_text("[]")
+        with pytest.raises(CredentialStoreError):
+            store.get("a", "b")
+
+    def test_parent_dir_created_0700_and_no_tmp_left(self, fernet_key, tmp_path):
+        path = tmp_path / "sub" / "credentials.json"
+        EncryptedFileStore(path=path, fernet_key=fernet_key).set("a", "b", {"k": "v"})
+        assert stat.S_IMODE(path.parent.stat().st_mode) == 0o700
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
+        assert not list(path.parent.glob("*.tmp"))
+
+    def test_concurrent_sets_do_not_lose_updates(self, store):
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(8) as ex:
+            list(ex.map(lambda i: store.set("s", f"a{i}", {"i": i}), range(24)))
+        assert all(store.get("s", f"a{i}") == {"i": i} for i in range(24))
