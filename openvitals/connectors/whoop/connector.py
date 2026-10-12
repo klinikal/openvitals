@@ -681,8 +681,8 @@ class WhoopConnector(BaseConnector):
         time_in_bed_minutes_raw = _millis_to_minutes(in_bed_ms)
         time_in_bed_minutes = int(time_in_bed_minutes_raw) if time_in_bed_minutes_raw is not None else None
 
-        # WHOOP HRV is in rMSSD milliseconds — no unit conversion needed
-        hrv_rmssd_milli = score.get("hrv_rmssd_milli")
+        def _stage_min(ms: float | int | None) -> int | None:
+            return None if ms is None else int(ms // 60_000)
 
         # sleep_latency is not provided by WHOOP v2 API
         # ASSUMPTION: WHOOP v2 does not expose sleep latency in the score block.
@@ -694,12 +694,12 @@ class WhoopConnector(BaseConnector):
             sleep_efficiency_pct=score.get("sleep_efficiency_percentage"),
             sleep_latency_minutes=None,  # not in WHOOP v2 API
             awakenings_count=stage_summary.get("disturbance_count"),
-            stage_rem_minutes=int(_millis_to_minutes(stage_summary.get("total_rem_sleep_time_milli")) or 0) or None,
-            stage_deep_minutes=int(_millis_to_minutes(stage_summary.get("total_slow_wave_sleep_time_milli")) or 0) or None,
-            stage_light_minutes=int(_millis_to_minutes(stage_summary.get("total_light_sleep_time_milli")) or 0) or None,
-            stage_awake_minutes=int(_millis_to_minutes(awake_ms) or 0) or None,
+            stage_rem_minutes=_stage_min(stage_summary.get("total_rem_sleep_time_milli")),
+            stage_deep_minutes=_stage_min(stage_summary.get("total_slow_wave_sleep_time_milli")),
+            stage_light_minutes=_stage_min(stage_summary.get("total_light_sleep_time_milli")),
+            stage_awake_minutes=_stage_min(awake_ms),
             avg_heart_rate_bpm=None,  # not in WHOOP v2 SleepScore (verified against whoop-api-reference.md)
-            avg_hrv_ms=float(hrv_rmssd_milli) if hrv_rmssd_milli is not None else None,
+            avg_hrv_ms=None,  # not in WHOOP v2 SleepScore; HRV is on recovery records
             respiratory_rate_bpm=score.get("respiratory_rate"),
             avg_spo2_pct=None,  # not in WHOOP v2 SleepScore (verified against whoop-api-reference.md; spo2 is RecoveryScore only)
             provider_sleep_score=(
