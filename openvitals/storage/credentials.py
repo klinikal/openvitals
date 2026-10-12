@@ -24,13 +24,21 @@ Use ``[[ -n "$OPENVITALS_ENCRYPTION_KEY" ]] && echo set`` to check existence.
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 import logging
 import os
-import stat
+import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, InvalidToken
+
+from openvitals.errors import OpenVitalsError
+
+try:
+    import fcntl
+except ImportError:  # ponytail: no locking on Windows; single-writer assumed there
+    fcntl = None  # type: ignore[assignment]
 
 log = logging.getLogger(__name__)
 
@@ -48,6 +56,10 @@ class EncryptionKeyMissingError(RuntimeError):
     This is a configuration error — the caller must set the env var before
     constructing an ``EncryptedFileStore``.
     """
+
+
+class CredentialStoreError(OpenVitalsError):
+    """The credential store is unreadable, corrupt, or cannot be decrypted with the key."""
 
 
 class CredentialStore(ABC):
@@ -144,33 +156,54 @@ class EncryptedFileStore(CredentialStore):
     # --- Internal helpers ---------------------------------------------------
 
     def _load(self) -> dict[str, str]:
-        """Load the raw (encrypted blobs) JSON dict from disk.  Returns {} if missing."""
-        if not self._path.exists():
-            return {}
+        """Load the raw (encrypted blobs) JSON dict from disk.  Returns {} only if the file is missing."""
         try:
             with self._path.open("r") as f:
-                return json.load(f)
-        except json.JSONDecodeError as exc:
-            log.warning("Credential store at %s is corrupt (JSONDecodeError: %s) — treating as empty.", self._path, exc)
+                data = json.load(f)
+        except FileNotFoundError:
             return {}
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise CredentialStoreError(
+                f"Credential store at {self._path} is corrupt ({type(exc).__name__}); "
+                "refusing to continue so other accounts are not overwritten."
+            ) from exc
         except OSError as exc:
-            log.warning("Could not read credential store at %s (%s: %s) — treating as empty.", self._path, type(exc).__name__, exc)
-            return {}
+            raise CredentialStoreError(
+                f"Could not read credential store at {self._path} ({type(exc).__name__})."
+            ) from exc
+        if not isinstance(data, dict):
+            raise CredentialStoreError(f"Credential store at {self._path} is corrupt (not a JSON object).")
+        return data
 
     def _save(self, data: dict[str, str]) -> None:
-        """Write the encrypted dict to disk with 0600 permissions."""
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        # Write to a temp file, chmod, then rename for crash-safety
-        tmp = self._path.with_suffix(".tmp")
+        """Atomically write the encrypted dict to disk with 0600 permissions."""
+        self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        # mkstemp creates the file 0600 with a unique name in the same dir
+        fd, tmp_name = tempfile.mkstemp(dir=self._path.parent, prefix=self._path.name + ".", suffix=".tmp")
         try:
-            with tmp.open("w") as f:
+            with os.fdopen(fd, "w") as f:
                 json.dump(data, f)
-            # Set 0600 before rename so the file is never world-readable
-            tmp.chmod(stat.S_IRUSR | stat.S_IWUSR)
-            tmp.rename(self._path)
-        except Exception:
-            tmp.unlink(missing_ok=True)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_name, self._path)
+        except BaseException:
+            Path(tmp_name).unlink(missing_ok=True)
             raise
+
+    @contextmanager
+    def _locked(self):
+        """Serialise read-modify-write across processes via flock on a sibling lockfile."""
+        if fcntl is None:
+            yield
+            return
+        self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        lock_path = self._path.with_name(self._path.name + ".lock")
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            yield
+        finally:
+            os.close(fd)  # closing releases the lock
 
     @staticmethod
     def _key(source: str, account_ref: str) -> str:
@@ -183,18 +216,26 @@ class EncryptedFileStore(CredentialStore):
         blob = data.get(self._key(source, account_ref))
         if blob is None:
             return None
-        decrypted = self._fernet.decrypt(blob.encode())
+        try:
+            decrypted = self._fernet.decrypt(blob.encode())
+        except InvalidToken as exc:
+            raise CredentialStoreError(
+                "Could not decrypt credential: wrong or rotated encryption key "
+                f"({ENV_VAR_FERNET_KEY}), or the stored blob is corrupt."
+            ) from exc
         return json.loads(decrypted)
 
     def set(self, source: str, account_ref: str, credential: dict) -> None:
         # NEVER log credential contents
-        data = self._load()
         plaintext = json.dumps(credential).encode()
         encrypted = self._fernet.encrypt(plaintext).decode()
-        data[self._key(source, account_ref)] = encrypted
-        self._save(data)
+        with self._locked():
+            data = self._load()
+            data[self._key(source, account_ref)] = encrypted
+            self._save(data)
 
     def delete(self, source: str, account_ref: str) -> None:
-        data = self._load()
-        data.pop(self._key(source, account_ref), None)
-        self._save(data)
+        with self._locked():
+            data = self._load()
+            data.pop(self._key(source, account_ref), None)
+            self._save(data)
